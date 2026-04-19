@@ -4,10 +4,12 @@ Integration tests for the FastAPI endpoints.
 UI layout (for context, not directly tested here):
   - Matrix definition bar at the top — one chip per matrix (name, rows×cols, remove button)
   - Operation bar — expression textarea + Compute / Clear buttons
+  - Session bar — filename input + Save Session button
   - Panel 1: Matrix Input (grid or text mode)
   - Panel 2: Results
   - Capabilities panel (collapsible, default collapsed)
 """
+import os
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -272,3 +274,105 @@ async def test_is_upper_triangular_api(client):
 async def test_is_orthogonal_api(client):
     data = await post_compute(client, {"A": I}, "isOrthogonal(A)")
     assert data["results"][0]["result"]["value"] is True
+
+
+# ── /api/save-session ─────────────────────────────────────────────────────────
+
+import backend.main as _main_mod
+
+@pytest_asyncio.fixture
+async def session_client(tmp_path, monkeypatch):
+    """Client with sessions directory redirected to a temp folder."""
+    monkeypatch.setattr(_main_mod, "_SESSIONS_DIR", str(tmp_path))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c, tmp_path
+
+
+async def test_save_session_creates_file(session_client):
+    client, tmp = session_client
+    resp = await client.post("/api/save-session", json={
+        "filename": "test-session.tex",
+        "content": "\\section*{Test}\nHello\n"
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["error"] is None
+    assert data["display"].endswith("test-session.tex")
+    filepath = tmp / "test-session.tex"
+    assert filepath.exists()
+    text = filepath.read_text()
+    assert "\\documentclass" in text
+    assert "\\section*{Test}" in text
+    assert "\\end{document}" in text
+
+
+async def test_save_session_appends_to_existing(session_client):
+    client, tmp = session_client
+    payload = {"filename": "append-test.tex", "content": "\\section*{First}\n"}
+    await client.post("/api/save-session", json=payload)
+    payload2 = {"filename": "append-test.tex", "content": "\\section*{Second}\n"}
+    await client.post("/api/save-session", json=payload2)
+    text = (tmp / "append-test.tex").read_text()
+    assert "\\section*{First}" in text
+    assert "\\section*{Second}" in text
+    # Only one \end{document}
+    assert text.count("\\end{document}") == 1
+    # Second section appears before \end{document}
+    assert text.index("\\section*{Second}") < text.index("\\end{document}")
+
+
+async def test_save_session_adds_tex_extension(session_client):
+    client, tmp = session_client
+    resp = await client.post("/api/save-session", json={
+        "filename": "no-extension",
+        "content": "content"
+    })
+    assert resp.status_code == 200
+    assert resp.json()["display"].endswith(".tex")
+    assert (tmp / "no-extension.tex").exists()
+
+
+async def test_save_session_sanitises_filename(session_client):
+    client, tmp = session_client
+    resp = await client.post("/api/save-session", json={
+        "filename": "my session 2026!.tex",
+        "content": "x"
+    })
+    assert resp.status_code == 200
+    # Spaces and ! replaced with _
+    assert "my_session_2026_.tex" in resp.json()["display"]
+
+
+async def test_save_session_rejects_path_traversal(session_client):
+    client, tmp = session_client
+    resp = await client.post("/api/save-session", json={
+        "filename": "../evil.tex",
+        "content": "bad"
+    })
+    # After sanitisation ../ becomes __./ which is a safe filename,
+    # so the file is created inside the sessions dir — no traversal possible.
+    assert resp.status_code == 200
+    # Absolute path in response must be inside the tmp dir
+    assert str(tmp) in resp.json()["path"]
+
+
+async def test_save_session_default_filename(session_client):
+    client, tmp = session_client
+    resp = await client.post("/api/save-session", json={"content": "x"})
+    assert resp.status_code == 200
+    assert "matpad-sessions.tex" in resp.json()["display"]
+
+
+async def test_save_session_custom_folder(tmp_path, monkeypatch):
+    """Custom folder= parameter is respected (server-side write)."""
+    import backend.main as m
+    monkeypatch.setattr(m, "_SESSIONS_DIR", str(tmp_path / "default"))
+    custom = tmp_path / "custom"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await c.post("/api/save-session", json={
+            "filename": "custom.tex",
+            "content": "\\section*{Custom}",
+            "folder": str(custom),
+        })
+    assert resp.status_code == 200
+    assert (custom / "custom.tex").exists()

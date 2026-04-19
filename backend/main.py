@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -91,6 +92,80 @@ def compute(req: ComputeRequest):
 
     results = parse_and_evaluate(req.expression, matrices)
     return JSONResponse(_json_safe({"results": results, "error": None}))
+
+
+# ─── Session save ─────────────────────────────────────────────────────────────
+
+_SESSIONS_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "sessions")
+)
+
+_TEX_PREAMBLE = r"""\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{MatPad Session Log}
+\date{}
+
+\begin{document}
+\maketitle
+
+"""
+_TEX_END = r"\end{document}"
+
+
+class SaveSessionRequest(BaseModel):
+    filename: str = "matpad-sessions.tex"
+    content: str
+    folder: Optional[str] = None   # absolute or ~-prefixed path; None → default sessions/
+
+
+@app.post("/api/save-session")
+def save_session(req: SaveSessionRequest):
+    """Append a LaTeX section to the session log file, creating it if necessary."""
+    # Sanitise filename — keep only safe characters, force .tex extension
+    name = re.sub(r"[^a-zA-Z0-9_\-.]", "_", req.filename.strip()) or "matpad-sessions"
+    if not name.endswith(".tex"):
+        name += ".tex"
+
+    # Resolve target directory
+    if req.folder and req.folder.strip():
+        folder = os.path.expanduser(req.folder.strip())
+        if not os.path.isabs(folder):
+            folder = os.path.normpath(os.path.join(
+                os.path.dirname(__file__), "..", folder
+            ))
+    else:
+        folder = _SESSIONS_DIR
+
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError as exc:
+        return JSONResponse({"path": None, "error": f"Cannot create directory: {exc}"}, status_code=400)
+
+    filepath = os.path.normpath(os.path.join(folder, name))
+
+    if not os.path.isfile(filepath):
+        body = _TEX_PREAMBLE + req.content + "\n\n" + _TEX_END + "\n"
+    else:
+        # newline='' + manual normalisation avoids platform-specific translation
+        # so the _TEX_END search and replace work identically on Windows and Unix
+        with open(filepath, "r", encoding="utf-8", newline="") as f:
+            existing = f.read().replace("\r\n", "\n").replace("\r", "\n")
+        if _TEX_END in existing:
+            body = existing.replace(_TEX_END, req.content + "\n\n" + _TEX_END, 1)
+        else:
+            body = existing + "\n" + req.content + "\n"
+
+    # newline='\n' forces Unix line endings on every platform (LaTeX-friendly)
+    with open(filepath, "w", encoding="utf-8", newline="\n") as f:
+        f.write(body)
+
+    # Always use forward slashes in the display string regardless of OS
+    display = "{}/{}".format(os.path.basename(folder), name)
+    return JSONResponse({"path": filepath, "display": display, "error": None})
 
 
 # ─── Serve frontend ───────────────────────────────────────────────────────────

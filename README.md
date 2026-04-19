@@ -15,6 +15,7 @@ MatPad lets you define matrices, write algebraic expressions using named functio
 - **Math expressions as cell values** — enter `2/sqrt(5)`, `pi/4`, `cos(pi/3)` directly in grid cells or text mode; values are evaluated and formatted on entry
 - **Rich results panel** — matrices, vectors, scalars, booleans, and multi-output decompositions each rendered in a consistent grid format with dynamic column sizing
 - **Copy LaTeX** — one-click copy of all computed results as a LaTeX-formatted string; disabled when there is nothing to copy
+- **Save session** — write the current matrices, expressions, and results to a `.tex` file that grows as a running log; subsequent saves append cleanly before `\end{document}`
 - **Collapsible panels** — Matrix Input, Results, and Capabilities panels collapse independently; state persists across page refreshes
 - **Capabilities reference** — searchable table of all supported operations with fuzzy matching on name, operator, and description
 
@@ -109,6 +110,19 @@ Click **Copy LaTeX** in the Results panel header to copy all successful results 
 | Matrix / vector | `expr = \begin{bmatrix} ... \end{bmatrix}` |
 | Boolean | `expr = \text{true}` |
 | Multi-output (qr, svd, eig…) | `\begin{aligned}` block with each named output |
+
+### 6. Save session to LaTeX
+
+The **session bar** sits between the expression editor and the workspace panels. Enter a filename (default: `matpad-sessions.tex`) and click **Save Session** to persist the current state to disk.
+
+- If the file does not exist it is created with a full `\documentclass{article}` preamble.
+- Each subsequent save appends a new `\section*{MatPad Session — …}` block immediately before `\end{document}`, preserving all prior entries.
+- A toast notification confirms the saved path (`sessions/<filename>.tex`).
+
+The generated section contains:
+- **Matrices** — each matrix rendered as a `bmatrix`
+- **Expressions** — the expression editor content in a `verbatim` block
+- **Results** — each successful result as a display-math block (`\[…\]`)
 
 ---
 
@@ -264,6 +278,25 @@ Returns one result object per non-empty expression line:
 }
 ```
 
+### `POST /api/save-session`
+
+```json
+{
+  "filename": "matpad-sessions.tex",
+  "content": "\\section*{MatPad Session --- 2026-04-18 14:32:05}\n..."
+}
+```
+
+Returns:
+
+```json
+{ "path": "sessions/matpad-sessions.tex", "error": null }
+```
+
+- The `filename` field is sanitised (non-alphanumeric characters replaced with `_`); a `.tex` extension is appended if missing.
+- Files are stored in the `sessions/` directory at the project root.
+- A new file receives a complete `\documentclass{article}` document skeleton; subsequent saves insert the new section before `\end{document}`.
+
 ---
 
 ## Running Tests
@@ -272,4 +305,4 @@ Returns one result object per non-empty expression line:
 pytest
 ```
 
-135 tests cover the parser, all operations, and the full API surface including error cases, multi-output results, and edge conditions.
+146 tests cover the parser, all operations, and the full API surface including error cases, multi-output results, session save, and edge conditions.

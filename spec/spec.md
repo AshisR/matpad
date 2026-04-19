@@ -141,6 +141,9 @@ As a user comfortable with matrix notation, I want to paste matrices in a compac
 - **FR-033**: A matrix chip's remove button MUST be disabled (or absent) when only one matrix remains in the session.
 - **FR-034**: Grid cells and text-mode matrix input MUST accept mathematical expressions as cell values (supporting `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `exp`, `log`, `log2`, `log10`, `abs`, `ceil`, `floor`, `round`, `sign`, `pow`, `hypot`, and the constants `pi` and `e`); grid cells MUST evaluate and format expressions on blur.
 - **FR-035**: The Results panel MUST provide a **Copy LaTeX** button that copies all successful computation results as a LaTeX-formatted string to the clipboard; the button MUST be disabled when there are no successful results to copy and MUST provide brief visual feedback on a successful copy.
+- **FR-036**: The workspace MUST provide a **session bar** (positioned between the expression editor and the workspace panels) that allows the user to specify a `.tex` filename and click **Save Session** to persist the current matrices, expression, and results to a file on the server; the bar MUST show a brief toast notification confirming the save path or reporting an error.
+- **FR-037**: Session files MUST be stored in a `sessions/` directory at the project root; saving to a file that does not exist MUST create a complete `\documentclass{article}` LaTeX document; saving to an existing file MUST append a new dated `\section*{}` block immediately before `\end{document}`, preserving all prior content.
+- **FR-038**: The filename supplied to the session bar MUST be sanitised server-side (unsafe characters replaced; `.tex` extension enforced) to prevent path traversal or injection.
 
 ### Key Entities
 
@@ -178,7 +181,7 @@ As a user comfortable with matrix notation, I want to paste matrices in a compac
 - The Matrix Input and Results panels share a horizontal row on wider screens.
 - Users may collapse the Matrix Input, Results, or Capabilities panels to keep the active calculation area compact.
 - Panel visibility preferences survive page refreshes; the Capabilities panel is collapsed by default.
-- The first release does not require user accounts, saved sessions, or collaboration features.
+- The first release does not require user accounts or collaboration features; session state is saved to server-local `.tex` files via the session bar.
 - The application runs locally in a browser session.
 - Text mode matrix input follows NumPy array-literal conventions and also accepts semicolon-separated and plain newline-separated row formats.
 - Operations.md is the current source of truth for the supported operation set and overloaded operators.

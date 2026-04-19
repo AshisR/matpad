@@ -595,6 +595,14 @@ async function compute() {
       showError(data.error);
     } else {
       renderResults(data.results);
+      // Capture snapshot for session save (all computations since last save)
+      _unsavedSessions.push({
+        timestamp:  new Date().toISOString(),
+        matrices:   matrices,
+        expression: expression,
+        results:    data.results,
+      });
+      updateSaveButtonState();
       const panel = $('#panel-results');
       if (panel && panel.dataset.collapsed === 'true') togglePanel('results');
     }
@@ -699,6 +707,219 @@ window.copyResultsAsLatex = function() {
     label.textContent = 'Copied!';
     setTimeout(() => { btn.classList.remove('copied'); label.textContent = 'Copy LaTeX'; }, 2000);
   });
+};
+
+// ─── Session save ─────────────────────────────────────────────────────────────
+
+// Feature detection
+const _hasFSA = typeof window.showDirectoryPicker === 'function';
+
+// Queue of snapshots captured after each successful compute
+let _unsavedSessions = [];
+// FileSystemDirectoryHandle (Chrome/Edge native picker)
+let _dirHandle = null;
+// Folder path string used when FSA is unavailable
+let _serverFolderPath = 'sessions';
+
+// ── Warn before leaving with unsaved work ─────────────────────────────────────
+window.addEventListener('beforeunload', e => {
+  if (_unsavedSessions.length > 0) {
+    e.preventDefault();
+    e.returnValue = ''; // required for Chrome to show the dialog
+  }
+});
+
+// LaTeX document skeleton (mirrors backend _TEX_PREAMBLE / _TEX_END)
+const _TEX_PREAMBLE = `\\documentclass{article}
+\\usepackage{amsmath}
+\\usepackage{amssymb}
+\\usepackage{geometry}
+\\geometry{margin=1in}
+
+\\title{MatPad Session Log}
+\\date{}
+
+\\begin{document}
+\\maketitle
+
+`;
+const _TEX_END = '\\end{document}';
+
+function escLatex(s) {
+  return String(s)
+    .replace(/\\/g, '\\textbackslash{}')
+    .replace(/[&%$#_{}~^]/g, c => `\\${c}`)
+    .replace(/</g, '\\textless{}')
+    .replace(/>/g, '\\textgreater{}');
+}
+
+function _sessionResultsToLatex(results) {
+  return results
+    .filter(r => !r.error && r.result)
+    .map(r => {
+      const expr = r.expr.trim();
+      if (r.result.type === 'multi_output') {
+        return `\\[\n% ${escLatex(expr)}\n\\begin{aligned}\n${resultValueToLatex(r.result)}\n\\end{aligned}\n\\]`;
+      }
+      return `\\[\n${expr} = ${resultValueToLatex(r.result)}\n\\]`;
+    })
+    .join('\n\n');
+}
+
+function _sessionEntryToLatex(session) {
+  const dateStr = session.timestamp.replace('T', ' ').slice(0, 19);
+
+  const matrixEntries = Object.entries(session.matrices);
+  let matrixLatex = '';
+  if (matrixEntries.length > 0) {
+    const parts = matrixEntries.map(([n, rows]) => `${escLatex(n)} = ${matrixToLatex(rows)}`);
+    matrixLatex = `\\subsection*{Matrices}\n\\[\n${parts.join(', \\quad\n')}\n\\]\n\n`;
+  }
+
+  const expr = session.expression.trim();
+  const exprLatex = expr
+    ? `\\subsection*{Expressions}\n\\begin{verbatim}\n${expr}\n\\end{verbatim}\n\n`
+    : '';
+
+  const hasResults = session.results.some(r => !r.error && r.result);
+  const resultsLatex = hasResults
+    ? `\\subsection*{Results}\n${_sessionResultsToLatex(session.results)}\n\n`
+    : '';
+
+  return `\\section*{MatPad Session --- ${dateStr}}\n\n${matrixLatex}${exprLatex}${resultsLatex}\\hrule\n`;
+}
+
+function _allUnsavedToLatex() {
+  return _unsavedSessions.map(_sessionEntryToLatex).join('\n\n');
+}
+
+function _sanitiseFilename(name) {
+  const n = (name || 'matpad-sessions').replace(/[^a-zA-Z0-9_\-.]/g, '_') || 'matpad-sessions';
+  return n.endsWith('.tex') ? n : n + '.tex';
+}
+
+function updateSaveButtonState() {
+  const btn   = $('#btn-save-session');
+  const label = $('#save-session-label');
+  if (!btn) return;
+  const n = _unsavedSessions.length;
+  btn.disabled = n === 0;
+  if (label) {
+    label.textContent = n > 1 ? `Save ${n} Sessions` : 'Save Session';
+  }
+}
+
+function showSessionToast(msg, type = 'success') {
+  let toast = document.getElementById('session-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'session-toast';
+    document.body.appendChild(toast);
+  }
+  toast.className = `session-toast session-toast--${type}`;
+  toast.textContent = msg;
+  void toast.offsetWidth; // force reflow so transition re-fires
+  toast.classList.add('session-toast--visible');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => toast.classList.remove('session-toast--visible'), 3200);
+}
+
+// ── Folder picker — unified button (FSA native dialog or prompt fallback) ─────
+window.pickFolder = async function() {
+  if (_hasFSA) {
+    try {
+      _dirHandle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'documents' });
+      _updateFolderLabel(_dirHandle.name);
+    } catch (e) {
+      if (e.name !== 'AbortError') showSessionToast(`Folder error: ${e.message}`, 'error');
+    }
+  } else {
+    // Browsers without File System Access API: ask for a path via prompt
+    const input = prompt('Enter folder path for session file:', _serverFolderPath);
+    if (input !== null) {
+      _serverFolderPath = input.trim() || 'sessions';
+      _updateFolderLabel(_serverFolderPath);
+    }
+  }
+};
+
+function _updateFolderLabel(name) {
+  const span = $('#folder-display-text');
+  const btn  = $('#btn-choose-folder');
+  if (!span) return;
+  span.textContent = name || 'Choose folder…';
+  const chosen = !!(name && name !== 'Choose folder…');
+  btn && btn.classList.toggle('folder-chosen', chosen);
+}
+
+// ── Write via File System Access API ──────────────────────────────────────────
+async function _saveSessionFSA(filename, content) {
+  let existingContent = '';
+  try {
+    const fh   = await _dirHandle.getFileHandle(filename);
+    const file = await fh.getFile();
+    // Normalise to \n so the _TEX_END search/replace works regardless of
+    // whether the file was written on Windows (\r\n) or Unix (\n)
+    existingContent = (await file.text()).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  } catch { /* new file */ }
+
+  const newContent = existingContent
+    ? (existingContent.includes(_TEX_END)
+        ? existingContent.replace(_TEX_END, content + '\n\n' + _TEX_END)
+        : existingContent + '\n' + content + '\n')
+    : _TEX_PREAMBLE + content + '\n\n' + _TEX_END + '\n';
+
+  const fh       = await _dirHandle.getFileHandle(filename, { create: true });
+  const writable = await fh.createWritable();
+  await writable.write(newContent);
+  await writable.close();
+
+  showSessionToast(`Saved → ${_dirHandle.name}/${filename}`, 'success');
+}
+
+// ── Write via server (non-FSA browsers) ───────────────────────────────────────
+async function _saveSessionServer(filename, content) {
+  const resp = await fetch('/api/save-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, content, folder: _serverFolderPath || null }),
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error);
+  showSessionToast(`Saved → ${data.display}`, 'success');
+}
+
+// ── Main save entry point ──────────────────────────────────────────────────────
+window.saveSession = async function() {
+  if (_unsavedSessions.length === 0) return;
+
+  // On FSA browsers ensure a folder is chosen first (opens picker if not yet set)
+  if (_hasFSA && !_dirHandle) {
+    await window.pickFolder();
+    if (!_dirHandle) return; // user cancelled the picker
+  }
+
+  const btn      = $('#btn-save-session');
+  const filename = _sanitiseFilename(($('#session-filename').value || '').trim());
+  const content  = _allUnsavedToLatex();
+
+  btn.disabled = true;
+  const origHTML = btn.innerHTML;
+  btn.querySelector('#save-session-label').textContent = 'Saving…';
+
+  try {
+    if (_hasFSA && _dirHandle) {
+      await _saveSessionFSA(filename, content);
+    } else {
+      await _saveSessionServer(filename, content);
+    }
+    _unsavedSessions = [];
+  } catch (e) {
+    showSessionToast(`Save failed: ${e.message}`, 'error');
+  } finally {
+    btn.innerHTML = origHTML;
+    updateSaveButtonState();
+  }
 };
 
 // ─── Render results ───────────────────────────────────────────────────────────
@@ -937,6 +1158,9 @@ function boot() {
   };
   renderMatrixChips();
   renderMatrixInputs();
+  // Seed the folder label for non-FSA browsers (shows default path immediately)
+  if (!_hasFSA) _updateFolderLabel(_serverFolderPath);
+  updateSaveButtonState();
 }
 
 document.addEventListener('DOMContentLoaded', boot);
