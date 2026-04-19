@@ -67,6 +67,7 @@ As a user who has computed a result, I want a clear output panel that shows what
 5. **Given** a user wants to focus on one part of the workflow, **When** they collapse a panel, **Then** the panel hides its body while keeping its header visible.
 6. **Given** a user refreshes the page, **When** they previously collapsed or expanded a panel, **Then** the interface restores that panel state; the Capabilities panel starts collapsed by default.
 7. **Given** a user is unsure which operation to use, **When** they search the Capabilities panel, **Then** the interface narrows the list to the most relevant matches using partial and fuzzy text matching.
+8. **Given** a user has computed results, **When** they click **Copy LaTeX**, **Then** the application copies all successful results as a LaTeX-formatted string to the clipboard and briefly confirms the copy; the button is disabled when there are no results.
 
 ---
 
@@ -77,7 +78,8 @@ As a user comfortable with matrix notation, I want to paste matrices in a compac
 **Acceptance Scenarios**:
 
 1. **Given** a user switches to Text input mode, **When** they paste valid matrix text (array literal, semicolon-separated, or plain newline-separated rows), **Then** the application parses the matrix and populates the values.
-2. **Given** a user submits malformed matrix text, **When** parsing fails, **Then** the application highlights the issue and tells the user what needs to be corrected.
+2. **Given** a user enters cell values as mathematical expressions (e.g. `[[2/sqrt(5), 1/sqrt(5)], [-1/sqrt(5), 2/sqrt(5)]]`), **When** the text is applied or a grid cell loses focus, **Then** the application evaluates each expression and stores the numeric result formatted to five decimal places.
+3. **Given** a user submits malformed matrix text, **When** parsing fails, **Then** the application highlights the issue and tells the user what needs to be corrected.
 
 ### Edge Cases
 
@@ -107,7 +109,7 @@ As a user comfortable with matrix notation, I want to paste matrices in a compac
 - **FR-005**: The system MUST provide a multiline expression input in the operation bar where users define the matrix operations to be executed.
 - **FR-006**: The system MUST interpret user-defined operation text through a reusable parsing capability before computation begins.
 - **FR-007**: The system MUST provide a structured entry mode where users can input matrix values cell by cell.
-- **FR-008**: The system MUST provide a compact text entry mode that accepts matrix notation in array-literal, semicolon-separated, and plain newline-separated formats.
+- **FR-008**: The system MUST provide a compact text entry mode that accepts matrix notation in array-literal, semicolon-separated, and plain newline-separated formats, including cell values expressed as mathematical expressions (e.g. `2/sqrt(5)`, `pi/4`, `cos(pi/3)`).
 - **FR-009**: The system MUST validate structured input, text input, and expression text before allowing computation to run.
 - **FR-010**: The system MUST support the operations listed in [specs/Operations.md](../Operations.md): add, sub, eq, mult, pow, det, tr, T, ref, rref, dist, angle, dot, qr, diag, solve, inv, rank, lstsq, eig, schur, jnf, norm, and svd, plus the boolean predicates isIdentity, isDiagonal, isSymmetric, isUpperTriangular, isOrthogonal, isOrthonormal, isIndependent.
 - **FR-011**: The system MUST recognise operator symbols defined in Operations.md as overloaded equivalents of their named functions, including unary negation with `-expr`.
@@ -137,6 +139,8 @@ As a user comfortable with matrix notation, I want to paste matrices in a compac
 - **FR-031**: The Capabilities panel MUST support searching by function name, operator symbol, or descriptive text including partial and fuzzy matches.
 - **FR-032**: The expression textarea MUST provide an inline autocomplete dropdown filtered by prefix from the current word at the cursor; selecting a suggestion MUST insert the function name followed by `(` and place the cursor inside the argument position; the dropdown MUST be navigable by keyboard and dismissible.
 - **FR-033**: A matrix chip's remove button MUST be disabled (or absent) when only one matrix remains in the session.
+- **FR-034**: Grid cells and text-mode matrix input MUST accept mathematical expressions as cell values (supporting `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `exp`, `log`, `log2`, `log10`, `abs`, `ceil`, `floor`, `round`, `sign`, `pow`, `hypot`, and the constants `pi` and `e`); grid cells MUST evaluate and format expressions on blur.
+- **FR-035**: The Results panel MUST provide a **Copy LaTeX** button that copies all successful computation results as a LaTeX-formatted string to the clipboard; the button MUST be disabled when there are no successful results to copy and MUST provide brief visual feedback on a successful copy.
 
 ### Key Entities
 

@@ -42,7 +42,7 @@ async def test_operations_endpoint(client):
     assert isinstance(ops, list)
     assert len(ops) > 0
     names = [o["name"] for o in ops]
-    for expected in ["add", "det", "inv", "eig", "qr", "schur", "norm"]:
+    for expected in ["add", "det", "inv", "eig", "qr", "schur", "norm", "svd"]:
         assert expected in names
 
 async def test_operations_have_required_fields(client):

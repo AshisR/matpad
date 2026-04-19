@@ -622,8 +622,89 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ─── LaTeX export ─────────────────────────────────────────────────────────────
+
+function fmtLatexNum(v) {
+  if (typeof v === 'object' && v !== null && 're' in v) {
+    const re = fmtScalar(v.re), im = fmtScalar(Math.abs(v.im));
+    return v.im < 0 ? `${re} - ${im}i` : `${re} + ${im}i`;
+  }
+  return fmtScalar(typeof v === 'number' ? v : parseFloat(v));
+}
+
+function matrixToLatex(values) {
+  const rows = values.map(row => row.map(fmtLatexNum).join(' & ')).join(' \\\\\n    ');
+  return `\\begin{bmatrix}\n    ${rows}\n  \\end{bmatrix}`;
+}
+
+function vectorToLatex(values) {
+  const flat = Array.isArray(values[0]) ? values.flat() : values;
+  return `\\begin{bmatrix}\n    ${flat.map(fmtLatexNum).join(' \\\\\n    ')}\n  \\end{bmatrix}`;
+}
+
+function resultValueToLatex(res) {
+  if (!res) return '';
+  switch (res.type) {
+    case 'scalar':  return fmtLatexNum(res.value);
+    case 'boolean': return `\\text{${res.value ? 'true' : 'false'}}`;
+    case 'vector':  return vectorToLatex(res.value);
+    case 'matrix':  return matrixToLatex(res.value);
+    case 'multi_output':
+      return Object.entries(res.outputs)
+        .map(([k, v]) => `  ${k} &= ${resultValueToLatex(v)}`)
+        .join(' \\\\\n');
+    default: return String(res.value ?? '');
+  }
+}
+
+function resultsToLatex(results) {
+  return results
+    .filter(r => !r.error && r.result)
+    .map(r => {
+      const expr = r.expr.trim();
+      if (r.result.type === 'multi_output') {
+        return `% ${expr}\n\\begin{aligned}\n${resultValueToLatex(r.result)}\n\\end{aligned}`;
+      }
+      return `${expr} = ${resultValueToLatex(r.result)}`;
+    })
+    .join('\n\n');
+}
+
+// Stored for the copy button
+let _lastResults = [];
+
+function setCopyLatexEnabled(on) {
+  const btn = $('#btn-copy-latex');
+  if (btn) btn.disabled = !on;
+}
+
+window.copyResultsAsLatex = function() {
+  const latex = resultsToLatex(_lastResults);
+  if (!latex) return;
+  const btn   = $('#btn-copy-latex');
+  const label = $('#copy-latex-label');
+  navigator.clipboard.writeText(latex).then(() => {
+    btn.classList.add('copied');
+    label.textContent = 'Copied!';
+    setTimeout(() => { btn.classList.remove('copied'); label.textContent = 'Copy LaTeX'; }, 2000);
+  }).catch(() => {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = latex;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.classList.add('copied');
+    label.textContent = 'Copied!';
+    setTimeout(() => { btn.classList.remove('copied'); label.textContent = 'Copy LaTeX'; }, 2000);
+  });
+};
+
 // ─── Render results ───────────────────────────────────────────────────────────
 function renderResults(results) {
+  _lastResults = results;
+  setCopyLatexEnabled(results.some(r => !r.error && r.result));
   const container = $('#results-container');
   container.innerHTML = '';
   if (!results.length) { container.innerHTML = '<p class="empty-hint">No expressions to evaluate.</p>'; return; }
@@ -840,6 +921,8 @@ async function loadOperations() {
 $('#btn-add-matrix').addEventListener('click', addMatrix);
 $('#btn-compute').addEventListener('click', compute);
 $('#btn-clear-results').addEventListener('click', () => {
+  _lastResults = [];
+  setCopyLatexEnabled(false);
   $('#results-container').innerHTML = '<p class="empty-hint">Results will appear here after computation.</p>';
 });
 

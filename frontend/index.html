@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MatPad — Matrix Operations</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
@@ -12,7 +13,28 @@
   <header class="app-header">
     <div class="header-inner">
       <div class="logo">
-        <span class="logo-icon">⊞</span>
+        <span class="logo-icon">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="lg" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                <stop offset="0%"   stop-color="#5b7ff7"/>
+                <stop offset="100%" stop-color="#7c3aed"/>
+              </linearGradient>
+            </defs>
+            <rect width="36" height="36" rx="9" fill="url(#lg)"/>
+            <!-- left bracket -->
+            <path d="M11 8H9V28H11" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- right bracket -->
+            <path d="M25 8H27V28H25" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- 3 × 2 grid of cells, varying opacity to suggest a matrix -->
+            <rect x="13" y="11" width="4.5" height="3.5" rx="1" fill="white" fill-opacity="0.90"/>
+            <rect x="19" y="11" width="4.5" height="3.5" rx="1" fill="white" fill-opacity="0.45"/>
+            <rect x="13" y="16" width="4.5" height="3.5" rx="1" fill="white" fill-opacity="0.55"/>
+            <rect x="19" y="16" width="4.5" height="3.5" rx="1" fill="white" fill-opacity="0.90"/>
+            <rect x="13" y="21" width="4.5" height="3.5" rx="1" fill="white" fill-opacity="0.35"/>
+            <rect x="19" y="21" width="4.5" height="3.5" rx="1" fill="white" fill-opacity="0.70"/>
+          </svg>
+        </span>
         <span class="logo-text">MatPad</span>
       </div>
       <p class="logo-tagline">Interactive matrix operations workspace</p>
@@ -76,6 +98,15 @@
             <span class="panel-num">2</span>
             <h2>Results</h2>
           </div>
+          <button id="btn-copy-latex" class="btn-copy-latex" disabled
+                  title="Copy results as LaTeX"
+                  onclick="event.stopPropagation(); copyResultsAsLatex();">
+            <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="7" y="7" width="10" height="11" rx="2"/>
+              <path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>
+            </svg>
+            <span id="copy-latex-label">Copy LaTeX</span>
+          </button>
           <button class="panel-toggle-btn" tabindex="-1" aria-hidden="true">
             <svg class="chevron" viewBox="0 0 20 20"><path d="M5 7l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
           </button>

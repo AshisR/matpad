@@ -109,6 +109,13 @@ if os.path.isdir(_FRONTEND_DIR):
     if os.path.isdir(_static_js):
         app.mount("/js", StaticFiles(directory=_static_js), name="js")
 
+    @app.get("/favicon.svg", include_in_schema=False)
+    def serve_favicon():
+        favicon = os.path.join(_FRONTEND_DIR, "favicon.svg")
+        if os.path.isfile(favicon):
+            return FileResponse(favicon, media_type="image/svg+xml")
+        return JSONResponse({"error": "Not found"}, status_code=404)
+
     @app.get("/", include_in_schema=False)
     @app.get("/{path:path}", include_in_schema=False)
     def serve_frontend(path: str = ""):

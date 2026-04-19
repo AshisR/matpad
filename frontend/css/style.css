@@ -1,6 +1,6 @@
 /* ── Design tokens ─────────────────────────────────────────────────────────── */
 :root {
-  --bg:           #f5f6f8;
+  --bg:           #eef2ff;
   --surface:      #ffffff;
   --surface-alt:  #f9fafb;
   --border:       #e2e5ea;
@@ -33,7 +33,12 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 10% 0%,   rgba(79, 110, 247, 0.10) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 100%,  rgba(124, 58, 237, 0.08) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 40% at 60%  40%,  rgba(56, 189, 248, 0.06) 0%, transparent 50%);
+  background-attachment: fixed;
   color: var(--text);
   font-size: 14px;
   line-height: 1.6;
@@ -42,7 +47,9 @@ body {
 
 /* ── Header ───────────────────────────────────────────────────────────────── */
 .app-header {
-  background: var(--surface);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -56,13 +63,16 @@ body {
   align-items: center;
   gap: 16px;
 }
-.logo { display: flex; align-items: center; gap: 8px; }
-.logo-icon { font-size: 22px; line-height: 1; }
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-icon { display: flex; align-items: center; flex-shrink: 0; }
 .logo-text {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -.4px;
-  color: var(--text);
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -.5px;
+  background: linear-gradient(135deg, #4f6ef7 0%, #7c3aed 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 .logo-tagline {
   font-size: 13px;
@@ -396,6 +406,40 @@ body {
 
 .panel[data-collapsed="true"] > .panel-header { border-bottom-color: transparent; }
 .panel[data-collapsed="true"] .chevron { transform: rotate(-90deg); }
+
+.btn-copy-latex {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  margin-left: auto;
+  margin-right: 8px;
+  transition: background .15s, color .15s, border-color .15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.btn-copy-latex:not(:disabled):hover {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.btn-copy-latex:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.btn-copy-latex.copied {
+  background: #f0fdf4;
+  color: var(--success);
+  border-color: #86efac;
+}
 
 .panel-body { padding: 16px; }
 .panel-body[hidden] { display: none; }

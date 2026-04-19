@@ -12,7 +12,9 @@ MatPad lets you define matrices, write algebraic expressions using named functio
 - **Multiline expression editor** — write one operation per line; each line is parsed and evaluated independently
 - **Inline autocomplete** — start typing a function name and a ranked dropdown appears; select with keyboard or mouse
 - **Dual input modes** — fill a matrix cell-by-cell in a grid, or paste values in NumPy array-literal, semicolon-separated, or plain space-separated format
-- **Rich results panel** — matrices, vectors, scalars, booleans, and multi-output decompositions each rendered in a consistent grid format
+- **Math expressions as cell values** — enter `2/sqrt(5)`, `pi/4`, `cos(pi/3)` directly in grid cells or text mode; values are evaluated and formatted on entry
+- **Rich results panel** — matrices, vectors, scalars, booleans, and multi-output decompositions each rendered in a consistent grid format with dynamic column sizing
+- **Copy LaTeX** — one-click copy of all computed results as a LaTeX-formatted string; disabled when there is nothing to copy
 - **Collapsible panels** — Matrix Input, Results, and Capabilities panels collapse independently; state persists across page refreshes
 - **Capabilities reference** — searchable table of all supported operations with fuzzy matching on name, operator, and description
 
@@ -55,17 +57,29 @@ Select a matrix chip, then fill in values using the **Matrix Input** panel:
 
 | Mode | How to enter data |
 |---|---|
-| **Grid** | Click cells and type numbers; navigate with arrow keys, Tab, or Enter |
-| **Text** | Paste or type in NumPy array-literal, semicolon-separated rows, or plain space-separated rows, then click **Apply** |
+| **Grid** | Click cells and type numbers or math expressions; values are evaluated and formatted when you leave the cell |
+| **Text** | Paste or type in any supported format, then click **Apply** |
 
 **Accepted text formats:**
 
 ```
-[[1, 2, 3], [4, 5, 6]]       # NumPy array literal
-1 2 3; 4 5 6                  # semicolon-separated rows
-1 2 3                         # plain paste (newline-separated rows)
+[[1, 2, 3], [4, 5, 6]]                        # NumPy array literal
+[[2/sqrt(5), 1/sqrt(5)], [-1/sqrt(5), 2/sqrt(5)]]  # expressions in array literal
+1 2 3; 4 5 6                                  # semicolon-separated rows
+1 2 3                                         # plain paste (newline-separated rows)
 4 5 6
 ```
+
+**Supported math expressions in cell values:**
+
+| Category | Functions / Constants |
+|---|---|
+| Roots | `sqrt`, `cbrt` |
+| Trigonometry | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh` |
+| Exponential / log | `exp`, `log`, `log2`, `log10` |
+| Rounding / misc | `abs`, `ceil`, `floor`, `round`, `sign`, `pow`, `hypot` |
+| Constants | `pi`, `e` |
+| Operators | `+`, `-`, `*`, `/`, `^` (power) |
 
 ### 3. Write expressions
 
@@ -84,6 +98,17 @@ Start typing a function name to trigger **autocomplete** — use arrow keys to n
 ### 4. Compute
 
 Click **Compute** (or press Enter with an active item selected in the autocomplete). Each line is evaluated and the result appears in the **Results** panel alongside the expression that produced it.
+
+### 5. Copy results as LaTeX
+
+Click **Copy LaTeX** in the Results panel header to copy all successful results to the clipboard as a ready-to-paste LaTeX string. The button is disabled when there are no results. Each result type is formatted as follows:
+
+| Result type | LaTeX format |
+|---|---|
+| Scalar | `expr = value` |
+| Matrix / vector | `expr = \begin{bmatrix} ... \end{bmatrix}` |
+| Boolean | `expr = \text{true}` |
+| Multi-output (qr, svd, eig…) | `\begin{aligned}` block with each named output |
 
 ---
 
