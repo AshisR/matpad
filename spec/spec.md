@@ -109,7 +109,7 @@ As a user comfortable with matrix notation, I want to paste matrices in a compac
 - **FR-007**: The system MUST provide a structured entry mode where users can input matrix values cell by cell.
 - **FR-008**: The system MUST provide a compact text entry mode that accepts matrix notation in array-literal, semicolon-separated, and plain newline-separated formats.
 - **FR-009**: The system MUST validate structured input, text input, and expression text before allowing computation to run.
-- **FR-010**: The system MUST support the operations listed in [specs/Operations.md](../Operations.md): add, sub, eq, mult, pow, det, tr, T, ref, rref, dist, angle, dot, qr, diag, solve, inv, rank, lstsq, eig, schur, jnf, and norm, plus the boolean predicates isIdentity, isDiagonal, isSymmetric, isUpperTriangular, isOrthogonal, isOrthonormal, isIndependent.
+- **FR-010**: The system MUST support the operations listed in [specs/Operations.md](../Operations.md): add, sub, eq, mult, pow, det, tr, T, ref, rref, dist, angle, dot, qr, diag, solve, inv, rank, lstsq, eig, schur, jnf, norm, and svd, plus the boolean predicates isIdentity, isDiagonal, isSymmetric, isUpperTriangular, isOrthogonal, isOrthonormal, isIndependent.
 - **FR-011**: The system MUST recognise operator symbols defined in Operations.md as overloaded equivalents of their named functions, including unary negation with `-expr`.
 - **FR-012**: The system MUST support expressions composed of one or more supported functions and operators, including nested expressions and parenthesised groupings.
 - **FR-013**: The system MUST honour the documented grammar and operator precedence model: `^` binds tighter than unary `-`, which binds tighter than `*`, which binds tighter than `+`/`-`, which binds tighter than `==`.
