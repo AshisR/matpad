@@ -390,20 +390,27 @@ function valuesToNumpyText(values) {
   return '[' + values.map(row => '[' + row.map(v => v === '' ? '0' : v).join(', ') + ']').join(', ') + ']';
 }
 
+// Regex that matches a single number token: optional sign, digits, optional decimal, optional exponent
+const NUM_RE = /-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g;
+
 function parseNumpyText(text) {
-  text = text.trim();
+  // Normalize typographic minus signs (Unicode minus, en-dash, em-dash) to ASCII hyphen
+  text = text.trim().replace(/[\u2212\u2013\u2014]/g, '-');
   try {
     let rows;
     if (text.startsWith('[')) {
-      const cleaned = text.replace(/\barray\s*\(/g, '').replace(/\)\s*$/, '').replace(/'/g, '"');
+      const cleaned = text
+        .replace(/\barray\s*\(/g, '')
+        .replace(/\)\s*$/, '')
+        .replace(/'/g, '"');
       const parsed = JSON.parse(cleaned);
       if (!Array.isArray(parsed)) throw new Error('Expected an array');
       rows = Array.isArray(parsed[0]) ? parsed : [parsed];
     } else {
-      // Newline-separated (plain paste) or semicolon-separated rows
+      // Newline-separated or semicolon-separated rows; extract numbers with regex
       const sep = (text.includes('\n') && !text.includes(';')) ? '\n' : ';';
       rows = text.split(sep)
-        .map(row => row.trim().split(/[\s,]+/).filter(Boolean).map(Number))
+        .map(row => (row.trim().match(NUM_RE) || []).map(Number))
         .filter(row => row.length > 0);
     }
     if (!rows.length) throw new Error('No data found');
