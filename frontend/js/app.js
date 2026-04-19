@@ -1,0 +1,734 @@
+/**
+ * MatPad — frontend application
+ *
+ * Layout:
+ *   matrix-defn-bar  — compact chip per matrix (name, rows×cols, remove), + Add Matrix
+ *   operation-bar    — expression textarea with autocomplete + Compute / Clear
+ *   panel-input      — matrix value editors (grid or text)
+ *   panel-results    — computation output
+ *   panel-caps       — collapsible capabilities reference (default collapsed)
+ *
+ * Persistence: localStorage  mp_panel_<id>  ("1" = collapsed)
+ */
+(() => {
+'use strict';
+
+// ─── State ───────────────────────────────────────────────────────────────────
+const state = {
+  matrices: {},    // { A: {rows, cols, mode:"grid"|"numpy", values:[[…]]}, … }
+  operations: [],  // catalog from /api/operations
+};
+
+// ─── DOM helpers ─────────────────────────────────────────────────────────────
+const $  = (sel, ctx = document) => ctx.querySelector(sel);
+const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+const el = (tag, cls, html = '') => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html) e.innerHTML = html;
+  return e;
+};
+
+// ─── Formatting ───────────────────────────────────────────────────────────────
+function fmtNumber(v) {
+  if (typeof v === 'object' && v !== null && 're' in v) {
+    const re = fmtScalar(v.re), im = fmtScalar(Math.abs(v.im));
+    return v.im < 0 ? `${re}−${im}i` : `${re}+${im}i`;
+  }
+  return fmtScalar(v);
+}
+function fmtScalar(v) {
+  if (typeof v !== 'number') return String(v);
+  if (!isFinite(v)) return String(v);
+  if (Number.isInteger(v)) return String(v);
+  return v.toFixed(5);
+}
+
+// ─── Panel collapse / expand ─────────────────────────────────────────────────
+const LS_KEY = id => `mp_panel_${id}`;
+
+function initPanels() {
+  $$('.panel[data-panel-id]').forEach(panel => {
+    const id   = panel.dataset.panelId;
+    const body = $(`#panel-${id}-body`);
+    if (!body) return;
+    const defaultCollapsed = id === 'caps';
+    const stored   = localStorage.getItem(LS_KEY(id));
+    const collapsed = stored !== null ? stored === '1' : defaultCollapsed;
+    applyPanelState(panel, body, collapsed);
+  });
+}
+
+function applyPanelState(panel, body, collapsed) {
+  panel.dataset.collapsed = collapsed ? 'true' : 'false';
+  const header = $('.panel-header', panel);
+  if (header) header.setAttribute('aria-expanded', String(!collapsed));
+  body.hidden = collapsed;
+}
+
+window.togglePanel = function(id) {
+  const panel = $(`#panel-${id}`);
+  const body  = $(`#panel-${id}-body`);
+  if (!panel || !body) return;
+  const wasCollapsed = panel.dataset.collapsed === 'true';
+  applyPanelState(panel, body, !wasCollapsed);
+  localStorage.setItem(LS_KEY(id), wasCollapsed ? '0' : '1');
+};
+
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('panel-header')) {
+    e.preventDefault();
+    const panel = e.target.closest('.panel[data-panel-id]');
+    if (panel) togglePanel(panel.dataset.panelId);
+  }
+});
+
+// ─── Matrix definition bar ────────────────────────────────────────────────────
+
+/** Returns the next unused matrix letter (A…Z). */
+function nextMatrixName() {
+  const used = new Set(Object.keys(state.matrices));
+  for (let i = 0; i < 26; i++) {
+    const name = String.fromCharCode(65 + i);
+    if (!used.has(name)) return name;
+  }
+  return null;
+}
+
+function addMatrix() {
+  const name = nextMatrixName();
+  if (!name) return;
+  state.matrices[name] = { rows: 2, cols: 2, mode: 'grid', values: [['',''],['','']] };
+  renderMatrixChips();
+  renderMatrixInputs();
+}
+
+function removeMatrix(name) {
+  if (Object.keys(state.matrices).length <= 1) return; // keep at least one
+  delete state.matrices[name];
+  const card = $(`#matrix-card-${name}`);
+  if (card) card.remove();
+  renderMatrixChips();
+  const names = Object.keys(state.matrices);
+  if (!names.length) {
+    $('#matrices-container').innerHTML = '<p class="empty-hint">Add a matrix using the bar above.</p>';
+  }
+}
+
+function updateMatrixDim(name, type, rawVal) {
+  const m = state.matrices[name];
+  if (!m) return;
+  const val = Math.max(1, Math.min(20, parseInt(rawVal) || 1));
+  const oldRows = m.rows, oldCols = m.cols;
+  m[type] = val; // 'rows' or 'cols'
+
+  // Resize values array, preserving existing cells
+  const newValues = Array.from({ length: m.rows }, (_, r) =>
+    Array.from({ length: m.cols }, (_, c) => m.values[r]?.[c] ?? '')
+  );
+  m.values = newValues;
+
+  // Update the chip input to the clamped value
+  const chipInput = $(`.matrix-chip[data-name="${name}"] .chip-dim[data-type="${type}"]`);
+  if (chipInput) chipInput.value = val;
+
+  // Rebuild the matrix card only if dimensions actually changed
+  if ((type === 'rows' && val !== oldRows) || (type === 'cols' && val !== oldCols)) {
+    const card = $(`#matrix-card-${name}`);
+    if (card) {
+      card.replaceWith(buildMatrixCard(name, m));
+    }
+  }
+}
+
+/** Rename a matrix. Returns the accepted name (new on success, old on failure). */
+function renameMatrix(oldName, newName) {
+  newName = newName.trim();
+  // Must be a valid identifier and not already in use
+  if (!newName || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(newName)) return oldName;
+  if (newName === oldName) return oldName;
+  if (state.matrices[newName]) return oldName; // duplicate
+
+  // Rebuild state, preserving insertion order
+  const entries = Object.entries(state.matrices);
+  state.matrices = {};
+  for (const [k, v] of entries) {
+    state.matrices[k === oldName ? newName : k] = v;
+  }
+
+  // Update the chip's identity so dim/remove handlers stay correct
+  const chip = $(`.matrix-chip[data-name="${oldName}"]`);
+  if (chip) chip.dataset.name = newName;
+
+  // Rebuild the matrix card
+  const card = $(`#matrix-card-${oldName}`);
+  if (card) card.replaceWith(buildMatrixCard(newName, state.matrices[newName]));
+
+  return newName;
+}
+
+/** Build a single matrix chip element (no innerHTML — closures read chip.dataset.name). */
+function buildChip(name) {
+  const m    = state.matrices[name];
+  const chip = el('div', 'matrix-chip');
+  chip.dataset.name = name;
+
+  // ── Editable name ───────────────────────────────────────────────────────
+  const nameInp = document.createElement('input');
+  nameInp.type  = 'text';
+  nameInp.className = 'chip-name-input';
+  nameInp.value = name;
+  nameInp.size  = Math.max(1, name.length);
+  nameInp.setAttribute('aria-label', 'Matrix name');
+  nameInp.title = 'Click to rename (letters, digits, underscore; must start with a letter)';
+
+  nameInp.addEventListener('input', () => {
+    // Live visual feedback: mark invalid while typing
+    const v = nameInp.value.trim();
+    const occupied = v !== chip.dataset.name && state.matrices[v];
+    const badIdent = v && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(v);
+    nameInp.classList.toggle('invalid', !!(occupied || badIdent));
+  });
+
+  nameInp.addEventListener('blur', () => {
+    const currentName = chip.dataset.name;
+    const accepted = renameMatrix(currentName, nameInp.value);
+    nameInp.value = accepted;
+    nameInp.size  = Math.max(1, accepted.length);
+    nameInp.classList.remove('invalid');
+  });
+
+  nameInp.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); nameInp.blur(); }
+    if (e.key === 'Escape') { nameInp.value = chip.dataset.name; nameInp.blur(); }
+  });
+
+  // ── Dimension inputs ─────────────────────────────────────────────────────
+  const rowsInp = document.createElement('input');
+  rowsInp.type  = 'number';
+  rowsInp.className   = 'chip-dim';
+  rowsInp.dataset.type = 'rows';
+  rowsInp.min   = 1; rowsInp.max = 20;
+  rowsInp.value = m.rows;
+  rowsInp.title = 'Rows';
+
+  const colsInp = document.createElement('input');
+  colsInp.type  = 'number';
+  colsInp.className   = 'chip-dim';
+  colsInp.dataset.type = 'cols';
+  colsInp.min   = 1; colsInp.max = 20;
+  colsInp.value = m.cols;
+  colsInp.title = 'Columns';
+
+  [rowsInp, colsInp].forEach(inp => {
+    // Read chip.dataset.name at event time so renames are transparent
+    inp.addEventListener('change', () => updateMatrixDim(chip.dataset.name, inp.dataset.type, inp.value));
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+  });
+
+  // ── Remove button ─────────────────────────────────────────────────────────
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'chip-remove';
+  removeBtn.title     = `Remove matrix`;
+  removeBtn.textContent = '×';
+  removeBtn.addEventListener('click', () => removeMatrix(chip.dataset.name));
+
+  chip.appendChild(nameInp);
+  chip.appendChild(rowsInp);
+  chip.appendChild(el('span', 'chip-sep', '×'));
+  chip.appendChild(colsInp);
+  chip.appendChild(removeBtn);
+  return chip;
+}
+
+function renderMatrixChips() {
+  const container = $('#matrix-chips');
+  container.innerHTML = '';
+  Object.keys(state.matrices).forEach(name => container.appendChild(buildChip(name)));
+}
+
+window.removeMatrix = removeMatrix;
+
+// ─── Matrix input panel ────────────────────────────────────────────��──────────
+function renderMatrixInputs() {
+  const container = $('#matrices-container');
+  container.innerHTML = '';
+  const names = Object.keys(state.matrices);
+  if (!names.length) {
+    container.innerHTML = '<p class="empty-hint">Add a matrix using the bar above.</p>';
+    return;
+  }
+  names.forEach(name => container.appendChild(buildMatrixCard(name, state.matrices[name])));
+}
+
+function buildMatrixCard(name, m) {
+  const card = el('div', 'matrix-input-card');
+  card.id = `matrix-card-${name}`;
+  card.innerHTML = `
+    <div class="matrix-card-header">
+      <div>
+        <span class="matrix-card-title">${name}</span>
+        <span class="matrix-card-dims">${m.rows} × ${m.cols}</span>
+      </div>
+      <div class="input-mode-toggle">
+        <button class="mode-btn ${m.mode === 'grid' ? 'active' : ''}"
+                onclick="setMatrixMode('${name}','grid')">Grid</button>
+        <button class="mode-btn ${m.mode === 'numpy' ? 'active' : ''}"
+                onclick="setMatrixMode('${name}','numpy')">Text</button>
+      </div>
+    </div>
+    <div class="matrix-card-body" id="matrix-body-${name}"></div>
+  `;
+  renderMatrixBody(name, m, $(`#matrix-body-${name}`, card));
+  return card;
+}
+
+function renderMatrixBody(name, m, container) {
+  container.innerHTML = '';
+  container.appendChild(m.mode === 'grid' ? buildGridEditor(name, m) : buildNumpyEditor(name, m));
+}
+
+function buildGridEditor(name, m) {
+  const frame = el('div', 'matrix-frame');
+  const grid  = el('div', 'matrix-grid');
+  grid.style.gridTemplateColumns = `repeat(${m.cols}, var(--cell-w))`;
+
+  for (let r = 0; r < m.rows; r++) {
+    for (let c = 0; c < m.cols; c++) {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.inputMode = 'numeric';
+      inp.className = 'cell-input' + (r % 2 === 1 ? ' row-guide' : '');
+      inp.dataset.row = r;
+      inp.dataset.col = c;
+      inp.dataset.matrix = name;
+      inp.value = m.values[r]?.[c] ?? '';
+      inp.setAttribute('aria-label', `${name}[${r+1},${c+1}]`);
+      inp.addEventListener('input', onCellInput);
+      inp.addEventListener('keydown', onCellKeydown);
+      grid.appendChild(inp);
+    }
+  }
+  frame.appendChild(grid);
+  return frame;
+}
+
+function onCellInput(e) {
+  const inp  = e.target;
+  const name = inp.dataset.matrix;
+  const r    = parseInt(inp.dataset.row);
+  const c    = parseInt(inp.dataset.col);
+  const val  = inp.value.trim();
+  if (!state.matrices[name]) return;
+  state.matrices[name].values[r][c] = val;
+  const valid = val === '' || val === '-' || isFinite(parseFloat(val));
+  inp.classList.toggle('invalid', !valid);
+}
+
+function onCellKeydown(e) {
+  const inp  = e.target;
+  const name = inp.dataset.matrix;
+  const m    = state.matrices[name];
+  if (!m) return;
+  const r = parseInt(inp.dataset.row);
+  const c = parseInt(inp.dataset.col);
+  let nr = r, nc = c;
+  if      (e.key === 'ArrowRight' || (e.key === 'Tab' && !e.shiftKey))  { if (c < m.cols-1) nc=c+1; else if (r<m.rows-1){nr=r+1;nc=0;} }
+  else if (e.key === 'ArrowLeft'  || (e.key === 'Tab' && e.shiftKey))   { if (c > 0) nc=c-1; else if (r>0){nr=r-1;nc=m.cols-1;} }
+  else if (e.key === 'ArrowDown'  || e.key === 'Enter')                  { if (r < m.rows-1) nr=r+1; }
+  else if (e.key === 'ArrowUp')                                          { if (r > 0) nr=r-1; }
+  else return;
+  if (nr !== r || nc !== c) {
+    e.preventDefault();
+    const next = $(`input[data-matrix="${name}"][data-row="${nr}"][data-col="${nc}"]`);
+    if (next) next.focus();
+  }
+}
+
+function buildNumpyEditor(name, m) {
+  const wrap = el('div', 'numpy-input-wrapper');
+  const ta   = el('textarea', 'numpy-textarea');
+  ta.placeholder = `[[1, 0], [0, 1]]  or  1 0; 0 1  or plain paste`;
+  ta.rows = Math.min(m.rows + 1, 8);
+  ta.value = valuesToNumpyText(m.values);
+  ta.id = `numpy-ta-${name}`;
+
+  const btn    = el('button', 'btn btn-primary numpy-parse-btn', 'Apply');
+  const errDiv = el('div', 'numpy-error');
+  errDiv.hidden = true;
+
+  btn.addEventListener('click', () => {
+    const result = parseNumpyText(ta.value);
+    if (result.error) {
+      errDiv.textContent = result.error;
+      errDiv.hidden = false;
+    } else {
+      errDiv.hidden = true;
+      const rows = result.data.length;
+      const cols = result.data[0].length;
+      state.matrices[name].values = result.data;
+      state.matrices[name].rows   = rows;
+      state.matrices[name].cols   = cols;
+      // Sync chip dims
+      const chipRows = $(`.matrix-chip[data-name="${name}"] .chip-dim[data-type="rows"]`);
+      const chipCols = $(`.matrix-chip[data-name="${name}"] .chip-dim[data-type="cols"]`);
+      if (chipRows) chipRows.value = rows;
+      if (chipCols) chipCols.value = cols;
+      const card = $(`#matrix-card-${name}`);
+      if (card) card.replaceWith(buildMatrixCard(name, state.matrices[name]));
+    }
+  });
+
+  wrap.appendChild(ta);
+  wrap.appendChild(btn);
+  wrap.appendChild(errDiv);
+  return wrap;
+}
+
+function valuesToNumpyText(values) {
+  if (!values || !values.length) return '';
+  return '[' + values.map(row => '[' + row.map(v => v === '' ? '0' : v).join(', ') + ']').join(', ') + ']';
+}
+
+function parseNumpyText(text) {
+  text = text.trim();
+  try {
+    let rows;
+    if (text.startsWith('[')) {
+      const cleaned = text.replace(/\barray\s*\(/g, '').replace(/\)\s*$/, '').replace(/'/g, '"');
+      const parsed = JSON.parse(cleaned);
+      if (!Array.isArray(parsed)) throw new Error('Expected an array');
+      rows = Array.isArray(parsed[0]) ? parsed : [parsed];
+    } else {
+      // Newline-separated (plain paste) or semicolon-separated rows
+      const sep = (text.includes('\n') && !text.includes(';')) ? '\n' : ';';
+      rows = text.split(sep)
+        .map(row => row.trim().split(/[\s,]+/).filter(Boolean).map(Number))
+        .filter(row => row.length > 0);
+    }
+    if (!rows.length) throw new Error('No data found');
+    const cols = rows[0].length;
+    if (cols === 0) throw new Error('Matrix cannot have 0 columns');
+    if (rows.some(r => r.length !== cols)) throw new Error('All rows must have the same number of columns');
+    if (rows.some(r => r.some(v => isNaN(v)))) throw new Error('Non-numeric values detected');
+    return { data: rows.map(r => r.map(String)) };
+  } catch (e) {
+    return { error: `Parse error: ${e.message}` };
+  }
+}
+
+window.setMatrixMode = function(name, mode) {
+  if (!state.matrices[name]) return;
+  state.matrices[name].mode = mode;
+  const card = $(`#matrix-card-${name}`);
+  if (card) card.replaceWith(buildMatrixCard(name, state.matrices[name]));
+};
+
+// ─── Collect matrix values for API ───────────────────────────────────────────
+function collectMatrices() {
+  const result = {}, errors = [];
+  for (const [name, m] of Object.entries(state.matrices)) {
+    const grid = [];
+    let ok = true;
+    for (let r = 0; r < m.rows; r++) {
+      const row = [];
+      for (let c = 0; c < m.cols; c++) {
+        const raw = (m.values[r]?.[c] ?? '').toString().trim();
+        const v   = raw === '' ? 0 : parseFloat(raw);
+        if (!isFinite(v)) { errors.push(`${name}[${r+1},${c+1}]: invalid number "${raw}"`); ok = false; }
+        row.push(v);
+      }
+      grid.push(row);
+    }
+    if (ok) result[name] = grid;
+  }
+  return { matrices: result, errors };
+}
+
+// ─── Compute ──────────────────────────────────────────────────────────────────
+async function compute() {
+  const btn        = $('#btn-compute');
+  const expression = $('#op-expression').value;
+  if (!expression.trim()) { showError('Please enter an operation expression.'); return; }
+
+  const { matrices, errors } = collectMatrices();
+  if (errors.length) { showError(errors.join('\n')); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Computing…';
+
+  try {
+    const resp = await fetch('/api/compute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matrices, expression }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      showError(data.error);
+    } else {
+      renderResults(data.results);
+      const panel = $('#panel-results');
+      if (panel && panel.dataset.collapsed === 'true') togglePanel('results');
+    }
+  } catch (e) {
+    showError(`Network error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg viewBox="0 0 20 20" width="14" height="14"><path d="M4 4l12 6-12 6V4z" fill="currentColor"/></svg> Compute';
+  }
+}
+
+function showError(msg) {
+  const container = $('#results-container');
+  container.innerHTML = '';
+  const block = el('div', 'result-block');
+  block.innerHTML = `
+    <div class="result-header"><span class="result-line-badge">Error</span></div>
+    <div class="result-body"><div class="result-error">${escHtml(msg)}</div></div>`;
+  container.appendChild(block);
+  const panel = $('#panel-results');
+  if (panel && panel.dataset.collapsed === 'true') togglePanel('results');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Render results ───────────────────────────────────────────────────────────
+function renderResults(results) {
+  const container = $('#results-container');
+  container.innerHTML = '';
+  if (!results.length) { container.innerHTML = '<p class="empty-hint">No expressions to evaluate.</p>'; return; }
+
+  results.forEach(r => {
+    const block = el('div', 'result-block');
+    block.innerHTML = `
+      <div class="result-header">
+        <span class="result-line-badge">Line ${r.line}</span>
+        <span class="result-expr">${escHtml(r.expr)}</span>
+      </div>
+      <div class="result-body" id="result-body-${r.line}"></div>`;
+    container.appendChild(block);
+    const body = $(`#result-body-${r.line}`, block);
+    if (r.error) {
+      body.innerHTML = `<div class="result-error">${escHtml(r.error)}</div>`;
+    } else {
+      renderResultValue(r.result, body);
+    }
+  });
+}
+
+function renderResultValue(res, container) {
+  if (!res) { container.innerHTML = '<em class="empty-hint">No result</em>'; return; }
+  switch (res.type) {
+    case 'scalar':       renderScalar(res.value, container);       break;
+    case 'boolean':      renderBoolean(res.value, container);      break;
+    case 'vector':       renderVector(res.value, container);       break;
+    case 'matrix':       renderMatrix(res.value, container);       break;
+    case 'multi_output': renderMultiOutput(res.outputs, container);break;
+    default:
+      container.innerHTML = `<div class="result-scalar"><span class="result-scalar-value">${escHtml(String(res.value))}</span></div>`;
+  }
+}
+
+function renderScalar(value, container) {
+  const d = el('div', 'result-scalar');
+  d.innerHTML = `<span class="result-scalar-label">scalar</span>
+                 <span class="result-scalar-value">${escHtml(fmtNumber(value))}</span>`;
+  container.appendChild(d);
+}
+
+function renderBoolean(value, container) {
+  const d = el('div', 'result-scalar');
+  const cls = value ? 'result-bool-true' : 'result-bool-false';
+  d.innerHTML = `<span class="result-scalar-label">boolean</span>
+                 <span class="result-scalar-value ${cls}">${value ? 'true' : 'false'}</span>`;
+  container.appendChild(d);
+}
+
+function renderVector(values, container) {
+  container.appendChild(el('div', 'result-vector-label', 'vector'));
+  const frame = el('div', 'result-matrix-frame');
+  const grid  = el('div', 'result-matrix-grid');
+  grid.style.gridTemplateColumns = 'max-content';
+  const flat = Array.isArray(values[0]) ? values.flat() : values;
+  flat.forEach(v => grid.appendChild(el('div', 'result-cell', escHtml(fmtNumber(v)))));
+  frame.appendChild(grid);
+  container.appendChild(frame);
+}
+
+function renderMatrix(values, container, label = 'matrix') {
+  container.appendChild(el('div', 'result-matrix-label', label));
+  const frame = el('div', 'result-matrix-frame');
+  const grid  = el('div', 'result-matrix-grid');
+  const cols  = values.length ? values[0].length : 0;
+  grid.style.gridTemplateColumns = `repeat(${cols}, max-content)`;
+  values.forEach((row, r) =>
+    row.forEach(v => grid.appendChild(
+      el('div', 'result-cell' + (r % 2 === 1 ? ' row-guide' : ''), escHtml(fmtNumber(v)))
+    ))
+  );
+  frame.appendChild(grid);
+  container.appendChild(frame);
+}
+
+function renderMultiOutput(outputs, container) {
+  const section = el('div', 'multi-output-section');
+  for (const [key, res] of Object.entries(outputs)) {
+    const item = el('div', 'multi-output-item');
+    item.innerHTML = `<div class="multi-output-item-label">${escHtml(key)}</div>`;
+    renderResultValue(res, item);
+    section.appendChild(item);
+  }
+  container.appendChild(section);
+}
+
+// ─── Autocomplete ─────────────────────────────────────────────────────────────
+const acState    = { active: -1, items: [] };
+const acDropdown = document.getElementById('autocomplete-dropdown');
+const opTextarea = document.getElementById('op-expression');
+
+function getWordAtCursor(ta) {
+  const pos = ta.selectionStart, text = ta.value;
+  let start = pos;
+  while (start > 0 && /[A-Za-z_0-9]/.test(text[start - 1])) start--;
+  return { word: text.slice(start, pos), start, end: pos };
+}
+
+function showAutocomplete(matches) {
+  acDropdown.innerHTML = '';
+  acState.items  = matches;
+  acState.active = -1;
+  matches.forEach((op, i) => {
+    const item = el('div', 'autocomplete-item');
+    item.dataset.index = i;
+    item.innerHTML = `<span class="ac-name">${escHtml(op.name)}</span>
+      ${op.operator ? `<span class="ac-op">${escHtml(op.operator)}</span>` : ''}
+      <span class="ac-desc">${escHtml(op.description)}</span>`;
+    item.addEventListener('mousedown', e => { e.preventDefault(); insertCompletion(op.name); });
+    acDropdown.appendChild(item);
+  });
+  acDropdown.hidden = !matches.length;
+}
+
+function hideAutocomplete() { acDropdown.hidden = true; acState.active = -1; }
+
+function insertCompletion(name) {
+  const { start, end } = getWordAtCursor(opTextarea);
+  const before = opTextarea.value.slice(0, start);
+  const after  = opTextarea.value.slice(end);
+  opTextarea.value = before + name + '(' + after;
+  const pos = before.length + name.length + 1;
+  opTextarea.setSelectionRange(pos, pos);
+  opTextarea.focus();
+  hideAutocomplete();
+}
+
+function updateAutocomplete() {
+  const { word } = getWordAtCursor(opTextarea);
+  if (!word) { hideAutocomplete(); return; }
+  const lower   = word.toLowerCase();
+  const matches = state.operations.filter(op => op.name.toLowerCase().startsWith(lower));
+  showAutocomplete(matches);
+}
+
+opTextarea.addEventListener('input', updateAutocomplete);
+opTextarea.addEventListener('click', updateAutocomplete);
+opTextarea.addEventListener('blur', () => setTimeout(hideAutocomplete, 150));
+opTextarea.addEventListener('keydown', e => {
+  if (acDropdown.hidden) return;
+  const items = $$('.autocomplete-item', acDropdown);
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    acState.active = Math.min(acState.active + 1, items.length - 1);
+    items.forEach((it, i) => it.classList.toggle('active', i === acState.active));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    acState.active = Math.max(acState.active - 1, 0);
+    items.forEach((it, i) => it.classList.toggle('active', i === acState.active));
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    if (acState.active >= 0 && acState.items[acState.active]) {
+      e.preventDefault();
+      insertCompletion(acState.items[acState.active].name);
+    } else if (e.key === 'Enter') {
+      hideAutocomplete();
+    }
+  } else if (e.key === 'Escape') {
+    hideAutocomplete();
+  }
+});
+
+// ─── Capabilities panel / fuzzy search ───────────────────────────────────────
+function renderCapabilitiesTable(ops) {
+  const container = $('#caps-table-container');
+  container.innerHTML = '';
+  const table = el('table', 'caps-table');
+  table.innerHTML = `<thead><tr><th>Function</th><th>Operator</th><th>Description</th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+  ops.forEach(op => {
+    const tr = document.createElement('tr');
+    tr.dataset.name = op.name.toLowerCase();
+    tr.dataset.op   = (op.operator ?? '').toLowerCase();
+    tr.dataset.desc = op.description.toLowerCase();
+    tr.innerHTML = `
+      <td><span class="caps-fn-name">${escHtml(op.name)}</span></td>
+      <td>${op.operator ? `<span class="caps-op-sym">${escHtml(op.operator)}</span>` : '—'}</td>
+      <td>${escHtml(op.description)}</td>`;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+function fuzzyScore(haystack, needle) {
+  if (!needle) return 1;
+  const h = haystack.toLowerCase(), n = needle.toLowerCase();
+  if (h.includes(n)) return 1;
+  let hi = 0, ni = 0, score = 0;
+  while (hi < h.length && ni < n.length) { if (h[hi] === n[ni]) { score++; ni++; } hi++; }
+  return ni === n.length ? score / n.length : 0;
+}
+
+$('#caps-search').addEventListener('input', e => {
+  const q = e.target.value.trim();
+  $$('.caps-table tbody tr').forEach(tr => {
+    const score = fuzzyScore(`${tr.dataset.name} ${tr.dataset.op} ${tr.dataset.desc}`, q);
+    tr.classList.toggle('caps-hidden', score < 0.6 && q.length > 0);
+  });
+});
+
+// ─── Load operations catalog ──────────────────────────────────────────────────
+async function loadOperations() {
+  try {
+    const resp = await fetch('/api/operations');
+    state.operations = await resp.json();
+    renderCapabilitiesTable(state.operations);
+  } catch (e) {
+    console.error('Failed to load operations catalog', e);
+  }
+}
+
+// ─── Wire buttons ─────────────────────────────────────────────────────────────
+$('#btn-add-matrix').addEventListener('click', addMatrix);
+$('#btn-compute').addEventListener('click', compute);
+$('#btn-clear-results').addEventListener('click', () => {
+  $('#results-container').innerHTML = '<p class="empty-hint">Results will appear here after computation.</p>';
+});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+function boot() {
+  initPanels();
+  loadOperations();
+  // Default: A and B at 2×2
+  state.matrices = {
+    A: { rows: 2, cols: 2, mode: 'grid', values: [['',''],['','']] },
+    B: { rows: 2, cols: 2, mode: 'grid', values: [['',''],['','']] },
+  };
+  renderMatrixChips();
+  renderMatrixInputs();
+}
+
+document.addEventListener('DOMContentLoaded', boot);
+
+})();

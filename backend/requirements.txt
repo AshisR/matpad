@@ -1,0 +1,10 @@
+fastapi>=0.95.0,<0.104.0
+uvicorn[standard]>=0.20.0
+numpy>=1.21.0,<1.25.0
+scipy>=1.7.0,<1.12.0
+sympy>=1.9
+pydantic>=1.9,<2.0
+httpx>=0.23.0,<0.26.0
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+anyio>=3.6.0
