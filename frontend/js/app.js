@@ -288,10 +288,16 @@ function renderMatrixBody(name, m, container) {
   container.appendChild(m.mode === 'grid' ? buildGridEditor(name, m) : buildNumpyEditor(name, m));
 }
 
+/** Set an input cell's inline width to fit its current value. */
+function syncCellWidth(inp) {
+  const len = Math.max(6, (inp.value || '').length + 1);
+  inp.style.width = `calc(${len} * 1ch + 10px)`;
+}
+
 function buildGridEditor(name, m) {
   const frame = el('div', 'matrix-frame');
   const grid  = el('div', 'matrix-grid');
-  grid.style.gridTemplateColumns = `repeat(${m.cols}, var(--cell-w))`;
+  grid.style.gridTemplateColumns = `repeat(${m.cols}, max-content)`;
 
   for (let r = 0; r < m.rows; r++) {
     for (let c = 0; c < m.cols; c++) {
@@ -304,8 +310,21 @@ function buildGridEditor(name, m) {
       inp.dataset.matrix = name;
       inp.value = m.values[r]?.[c] ?? '';
       inp.setAttribute('aria-label', `${name}[${r+1},${c+1}]`);
+      syncCellWidth(inp);
       inp.addEventListener('input', onCellInput);
       inp.addEventListener('keydown', onCellKeydown);
+      // On blur: evaluate any expression and format to 5 decimal places
+      inp.addEventListener('blur', () => {
+        const raw = inp.value.trim();
+        if (!raw || raw === '-') return;
+        try {
+          const formatted = fmtScalar(evalMathExpr(raw));
+          inp.value = formatted;
+          if (state.matrices[name]) state.matrices[name].values[r][c] = formatted;
+          inp.classList.remove('invalid');
+        } catch (_) { /* keep raw value; invalid class already set */ }
+        syncCellWidth(inp);
+      });
       grid.appendChild(inp);
     }
   }
@@ -321,8 +340,14 @@ function onCellInput(e) {
   const val  = inp.value.trim();
   if (!state.matrices[name]) return;
   state.matrices[name].values[r][c] = val;
-  const valid = val === '' || val === '-' || isFinite(parseFloat(val));
+  let valid = val === '' || val === '-';
+  if (!valid) {
+    try { evalMathExpr(val); valid = true; } catch (_) {
+      valid = isFinite(parseFloat(val)); // allow partial input like "1."
+    }
+  }
   inp.classList.toggle('invalid', !valid);
+  syncCellWidth(inp);
 }
 
 function onCellKeydown(e) {
@@ -390,11 +415,90 @@ function valuesToNumpyText(values) {
   return '[' + values.map(row => '[' + row.map(v => v === '' ? '0' : v).join(', ') + ']').join(', ') + ']';
 }
 
-// Regex that matches a single number token: optional sign, digits, optional decimal, optional exponent
+// ─── Math expression evaluator ───────────────────────────────────────────────
+// Ordered longest-first so e.g. "atan2" is replaced before "atan".
+const _MATH_SUBS = [
+  ['atan2', 'Math.atan2'], ['log10', 'Math.log10'], ['log2',  'Math.log2'],
+  ['sqrt',  'Math.sqrt'],  ['cbrt',  'Math.cbrt'],  ['hypot', 'Math.hypot'],
+  ['asin',  'Math.asin'],  ['acos',  'Math.acos'],  ['atan',  'Math.atan'],
+  ['sinh',  'Math.sinh'],  ['cosh',  'Math.cosh'],  ['tanh',  'Math.tanh'],
+  ['exp',   'Math.exp'],   ['log',   'Math.log'],   ['abs',   'Math.abs'],
+  ['ceil',  'Math.ceil'],  ['floor', 'Math.floor'], ['round', 'Math.round'],
+  ['sign',  'Math.sign'],  ['pow',   'Math.pow'],
+  ['sin',   'Math.sin'],   ['cos',   'Math.cos'],   ['tan',   'Math.tan'],
+  ['pi',    'Math.PI'],    ['e',     'Math.E'],
+];
+
+function evalMathExpr(expr) {
+  expr = String(expr).trim();
+  let safe = expr;
+  for (const [name, repl] of _MATH_SUBS) {
+    safe = safe.replace(new RegExp(`\\b${name}\\b`, 'g'), repl);
+  }
+  safe = safe.replace(/\^/g, '**');
+  // After substitution only Math.xxx, digits, operators, parens and spaces should remain
+  if (/[a-zA-Z_$]/.test(safe.replace(/\bMath\.[a-zA-Z0-9]+\b/g, ''))) {
+    throw new Error(`Unknown identifier in: "${expr}"`);
+  }
+  // eslint-disable-next-line no-new-func
+  const v = Function('"use strict"; return (' + safe + ')')();
+  if (typeof v !== 'number' || !isFinite(v)) throw new Error(`"${expr}" is not a finite number`);
+  return v;
+}
+
+/** Split a string by top-level commas (respects parentheses and bracket depth). */
+function splitByComma(str) {
+  const parts = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === '(' || str[i] === '[') depth++;
+    else if (str[i] === ')' || str[i] === ']') depth--;
+    else if (str[i] === ',' && depth === 0) {
+      parts.push(str.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  const last = str.slice(start).trim();
+  if (last) parts.push(last);
+  return parts;
+}
+
+/**
+ * Parse a [[expr, …], [expr, …]] literal where cell values may be math
+ * expressions (e.g. 2/sqrt(5), pi/4, cos(pi/3)).
+ */
+function parseExprArrayLiteral(text) {
+  text = text.trim();
+  if (!text.startsWith('[') || !text.endsWith(']')) throw new Error('Expected [...] array');
+  const inner = text.slice(1, -1).trim();
+  if (!inner.startsWith('[')) {
+    // 1-D: [expr, expr, …]
+    return [splitByComma(inner).filter(Boolean).map(evalMathExpr)];
+  }
+  // 2-D: [[row], [row], …] — locate row boundaries by tracking only [ / ]
+  const rows = [];
+  let i = 0;
+  while (i < inner.length) {
+    while (i < inner.length && /[\s,]/.test(inner[i])) i++;
+    if (i >= inner.length) break;
+    if (inner[i] !== '[') throw new Error(`Unexpected character "${inner[i]}" at position ${i}`);
+    let j = i + 1, depth = 1;
+    while (j < inner.length && depth > 0) {
+      if (inner[j] === '[') depth++;
+      else if (inner[j] === ']') depth--;
+      j++;
+    }
+    rows.push(splitByComma(inner.slice(i + 1, j - 1)).filter(Boolean).map(evalMathExpr));
+    i = j;
+  }
+  return rows;
+}
+
+// Regex for plain number tokens (used when no expressions are present)
 const NUM_RE = /-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g;
 
 function parseNumpyText(text) {
-  // Normalize typographic minus signs (Unicode minus, en-dash, em-dash) to ASCII hyphen
+  // Normalize typographic minus/dash variants to ASCII hyphen-minus
   text = text.trim().replace(/[\u2212\u2013\u2014]/g, '-');
   try {
     let rows;
@@ -403,22 +507,33 @@ function parseNumpyText(text) {
         .replace(/\barray\s*\(/g, '')
         .replace(/\)\s*$/, '')
         .replace(/'/g, '"');
-      const parsed = JSON.parse(cleaned);
-      if (!Array.isArray(parsed)) throw new Error('Expected an array');
-      rows = Array.isArray(parsed[0]) ? parsed : [parsed];
+      // Fast path: pure JSON numbers
+      let parsed = null;
+      try { parsed = JSON.parse(cleaned); } catch (_) { /* fall through */ }
+      if (parsed !== null && Array.isArray(parsed)) {
+        rows = Array.isArray(parsed[0]) ? parsed : [parsed];
+      } else {
+        // Expression-aware path
+        rows = parseExprArrayLiteral(cleaned);
+      }
     } else {
-      // Newline-separated or semicolon-separated rows; extract numbers with regex
       const sep = (text.includes('\n') && !text.includes(';')) ? '\n' : ';';
-      rows = text.split(sep)
-        .map(row => (row.trim().match(NUM_RE) || []).map(Number))
-        .filter(row => row.length > 0);
+      rows = text.split(sep).map(row => {
+        row = row.trim();
+        if (!row) return [];
+        // If the row contains letters or commas it may have expressions
+        if (/[a-zA-Z,]/.test(row)) {
+          return splitByComma(row).filter(Boolean).map(evalMathExpr);
+        }
+        return (row.match(NUM_RE) || []).map(Number);
+      }).filter(row => row.length > 0);
     }
-    if (!rows.length) throw new Error('No data found');
+    if (!rows || !rows.length) throw new Error('No data found');
     const cols = rows[0].length;
     if (cols === 0) throw new Error('Matrix cannot have 0 columns');
     if (rows.some(r => r.length !== cols)) throw new Error('All rows must have the same number of columns');
     if (rows.some(r => r.some(v => isNaN(v)))) throw new Error('Non-numeric values detected');
-    return { data: rows.map(r => r.map(String)) };
+    return { data: rows.map(r => r.map(v => fmtScalar(typeof v === 'number' ? v : parseFloat(v)))) };
   } catch (e) {
     return { error: `Parse error: ${e.message}` };
   }
@@ -441,9 +556,14 @@ function collectMatrices() {
       const row = [];
       for (let c = 0; c < m.cols; c++) {
         const raw = (m.values[r]?.[c] ?? '').toString().trim();
-        const v   = raw === '' ? 0 : parseFloat(raw);
-        if (!isFinite(v)) { errors.push(`${name}[${r+1},${c+1}]: invalid number "${raw}"`); ok = false; }
-        row.push(v);
+        if (raw === '') { row.push(0); continue; }
+        try {
+          row.push(evalMathExpr(raw));
+        } catch (_) {
+          const v = parseFloat(raw);
+          if (!isFinite(v)) { errors.push(`${name}[${r+1},${c+1}]: invalid value "${raw}"`); ok = false; }
+          else row.push(v);
+        }
       }
       grid.push(row);
     }

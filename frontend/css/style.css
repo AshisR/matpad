@@ -468,7 +468,8 @@ body {
 }
 
 .cell-input {
-  width: var(--cell-w);
+  min-width: var(--cell-w);
+  width: auto;
   height: var(--cell-h);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
