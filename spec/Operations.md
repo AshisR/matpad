@@ -29,4 +29,5 @@
 | schur    |          | Computes a Schur decomposition of a square matrix and returns unitary and triangular factors. |
 | jnf      |          | Computes Jordan normal form of a square matrix and returns transform and Jordan factors. |
 | norm     |          | Computes a matrix or vector norm                                                         |
+| svd      |          | Singular Value Decomposition — returns U, S (diagonal singular-value matrix), and Vt    |
 |          |          |                                                                                          |

@@ -340,6 +340,36 @@ def test_norm():
     assert abs(r - np.linalg.norm(IDENTITY2)) < FLOAT_TOL
 
 
+# ── svd ───────────────────────────────────────────────────────────────────────
+
+def test_svd_outputs():
+    r = execute("svd", [A2])
+    assert r["type"] == "multi_output"
+    assert {"U", "S", "Vt"} == set(r["outputs"].keys())
+
+def test_svd_reconstruction():
+    r = execute("svd", [A2])
+    U  = np.array(r["outputs"]["U"]["value"],  dtype=float)
+    S  = np.array(r["outputs"]["S"]["value"],  dtype=float)
+    Vt = np.array(r["outputs"]["Vt"]["value"], dtype=float)
+    np.testing.assert_array_almost_equal(U @ S @ Vt, A2, decimal=10)
+
+def test_svd_singular_values_nonnegative():
+    r = execute("svd", [A2])
+    S = np.array(r["outputs"]["S"]["value"], dtype=float)
+    assert np.all(np.diag(S) >= 0)
+
+def test_svd_rectangular():
+    # SVD must work on non-square matrices
+    A = mat([[1, 2, 3], [4, 5, 6]])
+    r = execute("svd", [A])
+    assert r["type"] == "multi_output"
+    U  = np.array(r["outputs"]["U"]["value"],  dtype=float)
+    S  = np.array(r["outputs"]["S"]["value"],  dtype=float)
+    Vt = np.array(r["outputs"]["Vt"]["value"], dtype=float)
+    np.testing.assert_array_almost_equal(U @ S @ Vt, A, decimal=10)
+
+
 # ── neg (internal) ────────────────────────────────────────────────────────────
 
 def test_neg_scalar():

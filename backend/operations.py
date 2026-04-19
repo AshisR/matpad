@@ -61,6 +61,7 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry("schur",            None,  "Schur decomposition — returns unitary Z and quasi-triangular T",              1,    1),
     CatalogEntry("jnf",              None,  "Jordan normal form — returns transform P and Jordan matrix J (uses SymPy)",   1,    1),
     CatalogEntry("norm",             None,  "Frobenius norm of a matrix, or L2 norm of a vector",                         1,    1),
+    CatalogEntry("svd",              None,  "Singular Value Decomposition — returns U, S (singular values), and Vt",        1,    1),
 ]
 
 CATALOG_MAP: dict[str, CatalogEntry] = {e.name: e for e in CATALOG}
@@ -454,6 +455,23 @@ def _op_norm(args):
     return _scalar_result(np.linalg.norm(A))
 
 
+def _op_svd(args):
+    A = _to_matrix(args[0])
+    U, s, Vt = np.linalg.svd(A, full_matrices=True)
+    # Present S as a 2-D matrix with singular values on the diagonal,
+    # same shape as A, so that U @ S @ Vt reconstructs A exactly.
+    S = np.zeros_like(A)
+    np.fill_diagonal(S, s)
+    return {
+        "type": "multi_output",
+        "outputs": {
+            "U":  {"type": "matrix", "value": _serialize_array(U)},
+            "S":  {"type": "matrix", "value": _serialize_array(S)},
+            "Vt": {"type": "matrix", "value": _serialize_array(Vt)},
+        },
+    }
+
+
 def _op_neg(args):
     arg = args[0]
     if _is_scalar(arg):
@@ -495,6 +513,7 @@ _OPERATION_FNS: dict = {
     "schur":             _op_schur,
     "jnf":               _op_jnf,
     "norm":              _op_norm,
+    "svd":               _op_svd,
     # internal
     "neg":               _op_neg,
 }

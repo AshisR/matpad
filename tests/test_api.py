@@ -150,6 +150,15 @@ async def test_compute_schur(client):
     assert "Z" in r["result"]["outputs"]
     assert "T" in r["result"]["outputs"]
 
+async def test_compute_svd(client):
+    data = await post_compute(client, {"A": A}, "svd(A)")
+    r = data["results"][0]
+    assert r["error"] is None
+    assert r["result"]["type"] == "multi_output"
+    assert "U"  in r["result"]["outputs"]
+    assert "S"  in r["result"]["outputs"]
+    assert "Vt" in r["result"]["outputs"]
+
 
 # ── Multiline expressions ─────────────────────────────────────────────────────
 

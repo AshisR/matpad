@@ -147,6 +147,7 @@ norm(A - B)
 |---|---|---|
 | `qr(A)` | `Q`, `R` | QR factorization |
 | `eig(A)` | `eigenvalues`, `eigenvectors` | Eigendecomposition |
+| `svd(A)` | `U`, `S`, `Vt` | Singular Value Decomposition |
 | `schur(A)` | `Z`, `T` | Schur decomposition |
 | `jnf(A)` | `P`, `J` | Jordan normal form |
 | `diag(A)` | `P`, `D` | Diagonalization |
