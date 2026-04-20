@@ -494,9 +494,6 @@ function parseExprArrayLiteral(text) {
   return rows;
 }
 
-// Regex for plain number tokens (used when no expressions are present)
-const NUM_RE = /-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g;
-
 function parseNumpyText(text) {
   // Normalize typographic minus/dash variants to ASCII hyphen-minus
   text = text.trim().replace(/[\u2212\u2013\u2014]/g, '-');
@@ -521,11 +518,18 @@ function parseNumpyText(text) {
       rows = text.split(sep).map(row => {
         row = row.trim();
         if (!row) return [];
-        // If the row contains letters or commas it may have expressions
-        if (/[a-zA-Z,]/.test(row)) {
-          return splitByComma(row).filter(Boolean).map(evalMathExpr);
+        // Comma-separated cells (may contain expressions like 2/sqrt(5))
+        if (row.includes(',')) {
+          return splitByComma(row).filter(Boolean).map(s => {
+            try { return evalMathExpr(s.trim()); } catch (_) { return parseFloat(s.trim()); }
+          });
         }
-        return (row.match(NUM_RE) || []).map(Number);
+        // Space-separated cells — split on whitespace and evaluate each token.
+        // This correctly handles plain numbers, fractions (1/3, -3/2), and
+        // math expressions (2/sqrt(5)), which NUM_RE would break apart.
+        return row.split(/\s+/).filter(Boolean).map(s => {
+          try { return evalMathExpr(s); } catch (_) { return parseFloat(s); }
+        });
       }).filter(row => row.length > 0);
     }
     if (!rows || !rows.length) throw new Error('No data found');

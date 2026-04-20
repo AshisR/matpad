@@ -394,3 +394,68 @@ def test_add_too_few_args():
 def test_unknown_operation():
     with pytest.raises(ValueError, match="Unknown"):
         execute("foobar", [A2])
+
+
+# ── Gram-Schmidt (gs) ─────────────────────────────────────────────────────────
+
+def test_gs_columns_orthonormal():
+    """Q^T Q must equal I — columns of Q are orthonormal."""
+    A = mat([[1, 1, 0], [1, 0, 1], [0, 1, 1]])
+    Q = unwrap_matrix(execute("gs", [A]))
+    QtQ = Q.T @ Q
+    np.testing.assert_array_almost_equal(QtQ, np.eye(3), decimal=10)
+
+def test_gs_same_column_space():
+    """Each original column of A must lie in the span of Q."""
+    A = mat([[1, 2], [3, 4], [5, 6]])
+    Q = unwrap_matrix(execute("gs", [A]))
+    # Project each column of A onto Q's column space; residual must be near zero
+    for j in range(A.shape[1]):
+        proj = Q @ (Q.T @ A[:, j])
+        np.testing.assert_array_almost_equal(proj, A[:, j], decimal=10)
+
+def test_gs_identity_input():
+    """Gram-Schmidt of the identity matrix returns the identity."""
+    I3 = np.eye(3)
+    Q = unwrap_matrix(execute("gs", [I3]))
+    np.testing.assert_array_almost_equal(np.abs(Q), np.eye(3), decimal=10)
+
+def test_gs_square_result_is_orthogonal():
+    """For a square full-rank input, the result Q satisfies Q Q^T = I too."""
+    A = mat([[1, 1], [1, 0]])
+    Q = unwrap_matrix(execute("gs", [A]))
+    np.testing.assert_array_almost_equal(Q @ Q.T, np.eye(2), decimal=10)
+
+def test_gs_rectangular_tall():
+    """Tall matrix (m > n): Q is m×n with orthonormal columns."""
+    A = mat([[1, 0], [1, 1], [0, 1]])
+    Q = unwrap_matrix(execute("gs", [A]))
+    assert Q.shape == (3, 2)
+    np.testing.assert_array_almost_equal(Q.T @ Q, np.eye(2), decimal=10)
+
+def test_gs_already_orthonormal():
+    """Orthonormal input → output matches up to column signs."""
+    Q0, _ = np.linalg.qr(np.random.default_rng(42).standard_normal((4, 4)))
+    Q = unwrap_matrix(execute("gs", [Q0]))
+    # Each column of Q must be ±1 times the corresponding column of Q0
+    for j in range(4):
+        dot = abs(float(Q[:, j] @ Q0[:, j]))
+        assert abs(dot - 1.0) < 1e-9, f"Column {j} not aligned: dot={dot}"
+
+def test_gs_dependent_columns_raises():
+    """Linearly dependent columns must raise ValueError."""
+    A = mat([[1, 2], [2, 4]])   # col 2 = 2 × col 1
+    with pytest.raises(ValueError, match="linearly dependent"):
+        execute("gs", [A])
+
+def test_gs_single_column():
+    """Single-column input → unit vector."""
+    A = mat([[3], [4]])
+    Q = unwrap_matrix(execute("gs", [A]))
+    np.testing.assert_array_almost_equal(Q, [[0.6], [0.8]], decimal=10)
+
+def test_gs_catalog_entry():
+    assert "gs" in CATALOG_MAP
+    entry = CATALOG_MAP["gs"]
+    assert entry.min_args == 1
+    assert entry.max_args == 1

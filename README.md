@@ -190,6 +190,7 @@ norm(A - B)
 | `schur(A)` | `Z`, `T` | Schur decomposition |
 | `jnf(A)` | `P`, `J` | Jordan normal form |
 | `diag(A)` | `P`, `D` | Diagonalization |
+| `gs(A)` | — | Gram-Schmidt orthogonalisation — returns Q (m × n) whose columns are an orthonormal basis for the column space of A |
 
 ### Solving & estimation
 

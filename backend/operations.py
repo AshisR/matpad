@@ -62,6 +62,7 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry("jnf",              None,  "Jordan normal form — returns transform P and Jordan matrix J (uses SymPy)",   1,    1),
     CatalogEntry("norm",             None,  "Frobenius norm of a matrix, or L2 norm of a vector",                         1,    1),
     CatalogEntry("svd",              None,  "Singular Value Decomposition — returns U, S (singular values), and Vt",        1,    1),
+    CatalogEntry("gs",               None,  "Gram-Schmidt orthogonalisation (modified) — returns Q whose columns are an orthonormal basis for the column space of A", 1, 1),
 ]
 
 CATALOG_MAP: dict[str, CatalogEntry] = {e.name: e for e in CATALOG}
@@ -472,6 +473,38 @@ def _op_svd(args):
     }
 
 
+def _op_gs(args):
+    """Modified Gram-Schmidt orthogonalisation of the columns of A.
+
+    Uses the modified (not classical) algorithm: after each column q_j is
+    fixed, its component is subtracted from *all remaining* working vectors,
+    not from the original columns.  This halves error accumulation compared
+    to the classical formulation.
+
+    Returns Q (m × n), whose columns are mutually orthonormal and span the
+    same column space as A.  Raises ValueError if any column is (numerically)
+    linearly dependent on the preceding ones.
+    """
+    A = _to_matrix(args[0])
+    m, n = A.shape
+    V = A.copy()          # working copy; gets orthogonalised in-place column by column
+    Q = np.zeros((m, n))
+
+    for j in range(n):
+        # Subtract projections onto already-fixed orthonormal vectors
+        for i in range(j):
+            V[:, j] -= np.dot(Q[:, i], V[:, j]) * Q[:, i]
+        norm = np.linalg.norm(V[:, j])
+        if norm < 1e-10:
+            raise ValueError(
+                f"Column {j + 1} is linearly dependent on the previous column(s); "
+                "Gram-Schmidt requires linearly independent input columns"
+            )
+        Q[:, j] = V[:, j] / norm
+
+    return _matrix_result(Q)
+
+
 def _op_neg(args):
     arg = args[0]
     if _is_scalar(arg):
@@ -514,6 +547,7 @@ _OPERATION_FNS: dict = {
     "jnf":               _op_jnf,
     "norm":              _op_norm,
     "svd":               _op_svd,
+    "gs":                _op_gs,
     # internal
     "neg":               _op_neg,
 }

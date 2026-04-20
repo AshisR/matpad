@@ -30,4 +30,4 @@
 | jnf      |          | Computes Jordan normal form of a square matrix and returns transform and Jordan factors. |
 | norm     |          | Computes a matrix or vector norm                                                         |
 | svd      |          | Singular Value Decomposition — returns U, S (diagonal singular-value matrix), and Vt    |
-|          |          |                                                                                          |
+| gs       |          | Gram-Schmidt orthogonalisation (modified algorithm) — returns Q (m × n) whose columns are an orthonormal basis for the column space of A. Requires linearly independent columns. |

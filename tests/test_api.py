@@ -275,6 +275,21 @@ async def test_is_orthogonal_api(client):
     data = await post_compute(client, {"A": I}, "isOrthogonal(A)")
     assert data["results"][0]["result"]["value"] is True
 
+async def test_compute_gs(client):
+    data = await post_compute(client, {"A": [[1.0, 1.0], [1.0, 0.0], [0.0, 1.0]]}, "gs(A)")
+    r = data["results"][0]
+    assert r["error"] is None
+    assert r["result"]["type"] == "matrix"
+    import numpy as np
+    Q = np.array(r["result"]["value"])
+    # Columns must be orthonormal: Q^T Q = I
+    np.testing.assert_array_almost_equal(Q.T @ Q, np.eye(2), decimal=8)
+
+async def test_gs_in_operations_catalog(client):
+    resp = await client.get("/api/operations")
+    names = [o["name"] for o in resp.json()]
+    assert "gs" in names
+
 
 # ── /api/save-session ─────────────────────────────────────────────────────────
 
