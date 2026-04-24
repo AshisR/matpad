@@ -459,3 +459,59 @@ def test_gs_catalog_entry():
     entry = CATALOG_MAP["gs"]
     assert entry.min_args == 1
     assert entry.max_args == 1
+
+
+# ── isSimilar ─────────────────────────────────────────────────────────────────
+
+def test_is_similar_same_matrix():
+    """A matrix is always similar to itself."""
+    assert unwrap_bool(execute("isSimilar", [A2, A2.copy()])) is True
+
+def test_is_similar_true_via_conjugation():
+    """B = P⁻¹ A P must be recognised as similar to A."""
+    P = mat([[1, 1], [0, 1]])
+    B = np.linalg.inv(P) @ A2 @ P
+    assert unwrap_bool(execute("isSimilar", [A2, B])) is True
+
+def test_is_similar_identity_only_similar_to_itself():
+    """The identity is only similar to itself."""
+    assert unwrap_bool(execute("isSimilar", [IDENTITY2, IDENTITY2])) is True
+    assert unwrap_bool(execute("isSimilar", [IDENTITY2, A2])) is False
+
+def test_is_similar_diagonalizable_matrices():
+    """Two diagonalizable matrices with the same eigenvalues are similar."""
+    # DIAG2 has eigenvalues 2 and 3; conjugate it with an invertible P
+    P = mat([[2, 1], [1, 1]])
+    B = np.linalg.inv(P) @ DIAG2 @ P
+    assert unwrap_bool(execute("isSimilar", [DIAG2, B])) is True
+
+def test_is_similar_false_different_eigenvalues():
+    """Matrices with different eigenvalues cannot be similar."""
+    C = mat([[1, 0], [0, 5]])   # eigenvalues 1, 5
+    D = mat([[2, 0], [0, 3]])   # eigenvalues 2, 3
+    assert unwrap_bool(execute("isSimilar", [C, D])) is False
+
+def test_is_similar_false_same_eigenvalues_different_jordan():
+    """Same eigenvalues but different Jordan structure → not similar."""
+    # Both have eigenvalue 2 with algebraic multiplicity 2,
+    # but one has a 2×2 Jordan block and the other is diagonal.
+    defective  = mat([[2, 1], [0, 2]])   # one 2×2 Jordan block
+    diag_equiv = mat([[2, 0], [0, 2]])   # two 1×1 Jordan blocks
+    assert unwrap_bool(execute("isSimilar", [defective, diag_equiv])) is False
+
+def test_is_similar_false_different_shape():
+    """Matrices of different sizes are never similar."""
+    A3 = mat([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    assert unwrap_bool(execute("isSimilar", [A2, A3])) is False
+
+def test_is_similar_non_square_raises():
+    """Non-square input must raise ValueError."""
+    rect = mat([[1, 2, 3], [4, 5, 6]])
+    with pytest.raises(ValueError, match="square"):
+        execute("isSimilar", [rect, rect])
+
+def test_is_similar_catalog_entry():
+    assert "isSimilar" in CATALOG_MAP
+    entry = CATALOG_MAP["isSimilar"]
+    assert entry.min_args == 2
+    assert entry.max_args == 2

@@ -31,3 +31,4 @@
 | norm     |          | Computes a matrix or vector norm                                                         |
 | svd      |          | Singular Value Decomposition — returns U, S (diagonal singular-value matrix), and Vt    |
 | gs       |          | Gram-Schmidt orthogonalisation (modified algorithm) — returns Q (m × n) whose columns are an orthonormal basis for the column space of A. Requires linearly independent columns. |
+| isSimilar |         | Returns true when two square matrices A and B are similar, i.e., there exists an invertible matrix P such that B = P⁻¹AP. Similarity is checked via Jordan Normal Form (requires SymPy). Raises an error for non-square inputs. |

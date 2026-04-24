@@ -63,6 +63,7 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry("norm",             None,  "Frobenius norm of a matrix, or L2 norm of a vector",                         1,    1),
     CatalogEntry("svd",              None,  "Singular Value Decomposition — returns U, S (singular values), and Vt",        1,    1),
     CatalogEntry("gs",               None,  "Gram-Schmidt orthogonalisation (modified) — returns Q whose columns are an orthonormal basis for the column space of A", 1, 1),
+    CatalogEntry("isSimilar",        None,  "True when two square matrices are similar (∃ invertible P s.t. B = P⁻¹AP)",                                             2, 2),
 ]
 
 CATALOG_MAP: dict[str, CatalogEntry] = {e.name: e for e in CATALOG}
@@ -505,6 +506,31 @@ def _op_gs(args):
     return _matrix_result(Q)
 
 
+def _op_is_similar(args):
+    """Two square matrices A and B are similar iff ∃ invertible P with B = P⁻¹ A P.
+
+    Similarity is determined by comparing Jordan Normal Forms via SymPy.
+    Matrices with the same JNF (up to block ordering) are similar.
+    """
+    A = _to_matrix(args[0])
+    B = _to_matrix(args[1])
+    if A.shape[0] != A.shape[1] or B.shape[0] != B.shape[1]:
+        raise ValueError("isSimilar requires square matrices")
+    if A.shape != B.shape:
+        return _bool_result(False)
+    try:
+        from sympy import Matrix as SMatrix, nsimplify  # type: ignore
+        SA = SMatrix([[nsimplify(x, rational=True) for x in row] for row in A.tolist()])
+        SB = SMatrix([[nsimplify(x, rational=True) for x in row] for row in B.tolist()])
+        _, JA = SA.jordan_form()
+        _, JB = SB.jordan_form()
+        return _bool_result(JA == JB)
+    except ImportError:
+        raise ValueError("isSimilar requires SymPy. Install with: pip install sympy")
+    except Exception as e:
+        raise ValueError(f"Could not determine similarity: {e}") from e
+
+
 def _op_neg(args):
     arg = args[0]
     if _is_scalar(arg):
@@ -548,6 +574,7 @@ _OPERATION_FNS: dict = {
     "norm":              _op_norm,
     "svd":               _op_svd,
     "gs":                _op_gs,
+    "isSimilar":         _op_is_similar,
     # internal
     "neg":               _op_neg,
 }
