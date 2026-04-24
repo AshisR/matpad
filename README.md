@@ -218,6 +218,7 @@ norm(A - B)
 | `isOrthogonal(A)` | Aᵀ A = I |
 | `isOrthonormal(A)` | Columns are orthonormal |
 | `isIndependent(A)` | Columns are linearly independent |
+| `isSimilar(A, B)` | ∃ invertible P such that B = P⁻¹AP (uses Jordan Normal Form) |
 
 ---
 
@@ -306,4 +307,4 @@ Returns:
 pytest
 ```
 
-146 tests cover the parser, all operations, and the full API surface including error cases, multi-output results, session save, and edge conditions.
+155 tests cover the parser, all operations, and the full API surface including error cases, multi-output results, session save, and edge conditions.
