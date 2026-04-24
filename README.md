@@ -171,6 +171,10 @@ norm(A - B)
 
 | Function | Description |
 |---|---|
+| `I(n)` | n×n identity matrix |
+| `elem_scale(n,p,i)` | Scale elementary matrix — n×n identity with row i multiplied by p (1-based index) |
+| `elem_swap(n,i,j)` | Swap elementary matrix — n×n identity with rows i and j exchanged (1-based indices) |
+| `elem_shear(n,p,i,j)` | Shear elementary matrix — n×n identity with E[i,j] = p; left-multiplication adds p·row j to row i (1-based indices) |
 | `det(A)` | Determinant |
 | `tr(A)` | Trace |
 | `T(A)` | Transpose |
@@ -191,6 +195,7 @@ norm(A - B)
 | `jnf(A)` | `P`, `J` | Jordan normal form |
 | `diag(A)` | `P`, `D` | Diagonalization |
 | `gs(A)` | — | Gram-Schmidt orthogonalisation — returns Q (m × n) whose columns are an orthonormal basis for the column space of A |
+| `lu(A)` | `P`, `L`, `U` | LU decomposition with partial pivoting — A = P·L·U. P is a permutation matrix, L is unit lower-triangular, U is upper-triangular. Works for square and rectangular matrices. |
 
 ### Solving & estimation
 

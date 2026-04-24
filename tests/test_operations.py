@@ -515,3 +515,230 @@ def test_is_similar_catalog_entry():
     entry = CATALOG_MAP["isSimilar"]
     assert entry.min_args == 2
     assert entry.max_args == 2
+
+
+# ── lu ────────────────────────────────────────────────────────────────────────
+
+def test_lu_outputs():
+    r = execute("lu", [A2])
+    assert r["type"] == "multi_output"
+    assert {"P", "L", "U"} == set(r["outputs"].keys())
+
+def test_lu_reconstruction_square():
+    """P @ L @ U must reconstruct A exactly."""
+    r = execute("lu", [A2])
+    P = np.array(r["outputs"]["P"]["value"], dtype=float)
+    L = np.array(r["outputs"]["L"]["value"], dtype=float)
+    U = np.array(r["outputs"]["U"]["value"], dtype=float)
+    np.testing.assert_array_almost_equal(P @ L @ U, A2, decimal=10)
+
+def test_lu_l_unit_lower_triangular():
+    """L must be unit lower-triangular (ones on diagonal, zeros above)."""
+    r = execute("lu", [A2])
+    L = np.array(r["outputs"]["L"]["value"], dtype=float)
+    k = min(L.shape)
+    assert np.allclose(np.diag(L)[:k], 1.0, atol=1e-10)
+    assert np.allclose(np.triu(L, 1), 0, atol=1e-10)
+
+def test_lu_u_upper_triangular():
+    """U must be upper-triangular."""
+    r = execute("lu", [A2])
+    U = np.array(r["outputs"]["U"]["value"], dtype=float)
+    assert np.allclose(np.tril(U, -1), 0, atol=1e-10)
+
+def test_lu_p_is_permutation():
+    """P must be a permutation matrix: orthogonal with 0/1 entries."""
+    r = execute("lu", [A2])
+    P = np.array(r["outputs"]["P"]["value"], dtype=float)
+    n = P.shape[0]
+    np.testing.assert_array_almost_equal(P @ P.T, np.eye(n), decimal=10)
+    assert set(np.unique(P)).issubset({0.0, 1.0})
+
+def test_lu_reconstruction_rectangular():
+    """LU must work on non-square matrices and reconstruct exactly."""
+    A = mat([[1, 2, 3], [4, 5, 6]])   # 2×3
+    r = execute("lu", [A])
+    P = np.array(r["outputs"]["P"]["value"], dtype=float)
+    L = np.array(r["outputs"]["L"]["value"], dtype=float)
+    U = np.array(r["outputs"]["U"]["value"], dtype=float)
+    np.testing.assert_array_almost_equal(P @ L @ U, A, decimal=10)
+
+def test_lu_shapes_rectangular():
+    """For m×n input, P is m×m, L is m×min(m,n), U is min(m,n)×n."""
+    A = mat([[1, 2, 3], [4, 5, 6]])   # 2×3
+    r = execute("lu", [A])
+    P = np.array(r["outputs"]["P"]["value"], dtype=float)
+    L = np.array(r["outputs"]["L"]["value"], dtype=float)
+    U = np.array(r["outputs"]["U"]["value"], dtype=float)
+    assert P.shape == (2, 2)
+    assert L.shape == (2, 2)
+    assert U.shape == (2, 3)
+
+def test_lu_identity_input():
+    """LU of the identity: P = I, L = I, U = I."""
+    r = execute("lu", [IDENTITY2])
+    P = np.array(r["outputs"]["P"]["value"], dtype=float)
+    L = np.array(r["outputs"]["L"]["value"], dtype=float)
+    U = np.array(r["outputs"]["U"]["value"], dtype=float)
+    np.testing.assert_array_almost_equal(P @ L @ U, IDENTITY2, decimal=10)
+
+def test_lu_singular_matrix():
+    """LU decomposition of a singular matrix must still succeed (no error)."""
+    A = mat([[1, 2], [2, 4]])   # rank 1
+    r = execute("lu", [A])
+    P = np.array(r["outputs"]["P"]["value"], dtype=float)
+    L = np.array(r["outputs"]["L"]["value"], dtype=float)
+    U = np.array(r["outputs"]["U"]["value"], dtype=float)
+    np.testing.assert_array_almost_equal(P @ L @ U, A, decimal=10)
+
+def test_lu_catalog_entry():
+    assert "lu" in CATALOG_MAP
+    entry = CATALOG_MAP["lu"]
+    assert entry.min_args == 1
+    assert entry.max_args == 1
+
+
+# ── I (identity) ─────────────────────────────────────────────────────────────
+
+def test_I_is_identity():
+    E = unwrap_matrix(execute("I", [3.0]))
+    np.testing.assert_array_almost_equal(E, np.eye(3), decimal=10)
+
+def test_I_shape():
+    E = unwrap_matrix(execute("I", [5.0]))
+    assert E.shape == (5, 5)
+
+def test_I_one_by_one():
+    E = unwrap_matrix(execute("I", [1.0]))
+    np.testing.assert_array_almost_equal(E, [[1.0]], decimal=10)
+
+def test_I_n_less_than_one():
+    with pytest.raises(ValueError, match="at least 1"):
+        execute("I", [0.0])
+
+def test_I_catalog_entry():
+    assert "I" in CATALOG_MAP
+    entry = CATALOG_MAP["I"]
+    assert entry.min_args == 1
+    assert entry.max_args == 1
+
+
+# ── elem_scale ────────────────────────────────────────────────────────────────
+
+def test_elem_scale_diagonal():
+    """Scale elementary matrix has p on the target diagonal, 1s elsewhere."""
+    E = unwrap_matrix(execute("elem_scale", [3.0, 2.5, 2.0]))
+    assert abs(E[1, 1] - 2.5) < FLOAT_TOL     # row 2 (1-based) → index 1
+    assert abs(E[0, 0] - 1.0) < FLOAT_TOL
+    assert abs(E[2, 2] - 1.0) < FLOAT_TOL
+    assert np.allclose(np.tril(E, -1), 0, atol=FLOAT_TOL)
+    assert np.allclose(np.triu(E,  1), 0, atol=FLOAT_TOL)
+
+def test_elem_scale_integer_p():
+    """elem_scale accepts integer p without ambiguity."""
+    E = unwrap_matrix(execute("elem_scale", [3.0, 3.0, 1.0]))  # scale row 1 by 3
+    assert abs(E[0, 0] - 3.0) < FLOAT_TOL
+    assert abs(E[1, 1] - 1.0) < FLOAT_TOL
+
+def test_elem_scale_effect():
+    """E_scale @ A must scale the target row by p."""
+    A = mat([[1, 2], [3, 4]])
+    E = unwrap_matrix(execute("elem_scale", [2.0, 0.5, 1.0]))
+    result = E @ A
+    np.testing.assert_array_almost_equal(result[0], A[0] * 0.5, decimal=10)
+    np.testing.assert_array_almost_equal(result[1], A[1],        decimal=10)
+
+def test_elem_scale_det():
+    """det of a scale elementary matrix equals p."""
+    E = unwrap_matrix(execute("elem_scale", [3.0, 3.0, 2.0]))
+    assert abs(np.linalg.det(E) - 3.0) < 1e-9
+
+def test_elem_scale_row_out_of_range():
+    with pytest.raises(ValueError, match="out of range"):
+        execute("elem_scale", [3.0, 2.0, 4.0])
+
+def test_elem_scale_n_less_than_one():
+    with pytest.raises(ValueError, match="at least 1"):
+        execute("elem_scale", [0.0, 2.0, 1.0])
+
+def test_elem_scale_catalog_entry():
+    assert "elem_scale" in CATALOG_MAP
+    entry = CATALOG_MAP["elem_scale"]
+    assert entry.min_args == 3
+    assert entry.max_args == 3
+
+
+# ── elem_swap ─────────────────────────────────────────────────────────────────
+
+def test_elem_swap_structure():
+    """Swap elementary matrix is a permutation with the two rows exchanged."""
+    E = unwrap_matrix(execute("elem_swap", [3.0, 1.0, 3.0]))
+    assert abs(E[0, 2] - 1.0) < FLOAT_TOL   # row 1 now points to col 3
+    assert abs(E[2, 0] - 1.0) < FLOAT_TOL   # row 3 now points to col 1
+    assert abs(E[1, 1] - 1.0) < FLOAT_TOL   # row 2 unchanged
+
+def test_elem_swap_effect():
+    """E_swap @ A must exchange the two target rows of A."""
+    A = mat([[1, 2], [3, 4]])
+    E = unwrap_matrix(execute("elem_swap", [2.0, 1.0, 2.0]))
+    result = E @ A
+    np.testing.assert_array_almost_equal(result[0], A[1], decimal=10)
+    np.testing.assert_array_almost_equal(result[1], A[0], decimal=10)
+
+def test_elem_swap_det():
+    """det of a swap elementary matrix equals -1."""
+    E = unwrap_matrix(execute("elem_swap", [3.0, 1.0, 2.0]))
+    assert abs(np.linalg.det(E) + 1.0) < 1e-9
+
+def test_elem_swap_same_row():
+    with pytest.raises(ValueError, match="different rows"):
+        execute("elem_swap", [3.0, 2.0, 2.0])
+
+def test_elem_swap_row_out_of_range():
+    with pytest.raises(ValueError, match="out of range"):
+        execute("elem_swap", [2.0, 1.0, 3.0])
+
+def test_elem_swap_catalog_entry():
+    assert "elem_swap" in CATALOG_MAP
+    entry = CATALOG_MAP["elem_swap"]
+    assert entry.min_args == 3
+    assert entry.max_args == 3
+
+
+# ── elem_shear ────────────────────────────────────────────────────────────────
+
+def test_elem_shear_structure():
+    """Shear elementary matrix has 1s on diagonal and p at (i-1, j-1)."""
+    E = unwrap_matrix(execute("elem_shear", [3.0, 5.0, 2.0, 1.0]))
+    assert abs(E[1, 0] - 5.0) < FLOAT_TOL
+    assert np.allclose(np.diag(E), 1.0, atol=FLOAT_TOL)
+    E_copy = E.copy()
+    E_copy[1, 0] = 0.0
+    assert np.allclose(E_copy, np.eye(3), atol=FLOAT_TOL)
+
+def test_elem_shear_effect():
+    """E_shear @ A must add p times row j to row i, leaving others unchanged."""
+    A = mat([[1, 2], [3, 4]])
+    E = unwrap_matrix(execute("elem_shear", [2.0, 3.0, 1.0, 2.0]))
+    result = E @ A
+    np.testing.assert_array_almost_equal(result[0], A[0] + 3 * A[1], decimal=10)
+    np.testing.assert_array_almost_equal(result[1], A[1],             decimal=10)
+
+def test_elem_shear_det():
+    """det of a shear elementary matrix equals 1."""
+    E = unwrap_matrix(execute("elem_shear", [3.0, 7.0, 1.0, 2.0]))
+    assert abs(np.linalg.det(E) - 1.0) < 1e-9
+
+def test_elem_shear_same_row():
+    with pytest.raises(ValueError, match="different rows"):
+        execute("elem_shear", [3.0, 5.0, 1.0, 1.0])
+
+def test_elem_shear_row_out_of_range():
+    with pytest.raises(ValueError, match="out of range"):
+        execute("elem_shear", [3.0, 2.0, 1.0, 4.0])
+
+def test_elem_shear_catalog_entry():
+    assert "elem_shear" in CATALOG_MAP
+    entry = CATALOG_MAP["elem_shear"]
+    assert entry.min_args == 4
+    assert entry.max_args == 4

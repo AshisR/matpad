@@ -31,4 +31,9 @@
 | norm     |          | Computes a matrix or vector norm                                                         |
 | svd      |          | Singular Value Decomposition — returns U, S (diagonal singular-value matrix), and Vt    |
 | gs       |          | Gram-Schmidt orthogonalisation (modified algorithm) — returns Q (m × n) whose columns are an orthonormal basis for the column space of A. Requires linearly independent columns. |
+| I        |          | Identity matrix — `I(n)` returns the n×n identity matrix. |
+| elem_scale |        | Scale elementary matrix — `elem_scale(n, p, i)`: n×n identity with row i multiplied by scalar p. Row index is 1-based. |
+| elem_swap |         | Swap elementary matrix — `elem_swap(n, i, j)`: n×n identity with rows i and j exchanged. Row indices are 1-based; i ≠ j. |
+| elem_shear |        | Shear elementary matrix — `elem_shear(n, p, i, j)`: n×n identity with E[i,j] = p; left-multiplying adds p·row j to row i. Row indices are 1-based; i ≠ j. |
+| lu       |          | LU decomposition with partial pivoting — returns permutation matrix P, unit lower-triangular matrix L, and upper-triangular matrix U such that A = P·L·U. Works for any matrix shape. |
 | isSimilar |         | Returns true when two square matrices A and B are similar, i.e., there exists an invertible matrix P such that B = P⁻¹AP. Similarity is checked via Jordan Normal Form (requires SymPy). Raises an error for non-square inputs. |

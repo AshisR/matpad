@@ -64,6 +64,11 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry("svd",              None,  "Singular Value Decomposition — returns U, S (singular values), and Vt",        1,    1),
     CatalogEntry("gs",               None,  "Gram-Schmidt orthogonalisation (modified) — returns Q whose columns are an orthonormal basis for the column space of A", 1, 1),
     CatalogEntry("isSimilar",        None,  "True when two square matrices are similar (∃ invertible P s.t. B = P⁻¹AP)",                                             2, 2),
+    CatalogEntry("lu",               None,  "LU decomposition with partial pivoting — returns permutation P, lower-triangular L, and upper-triangular U such that A = P·L·U", 1, 1),
+    CatalogEntry("I",                None,  "Identity matrix of size n×n",                                                                                                         1, 1),
+    CatalogEntry("elem_scale",       None,  "Scale elementary matrix — n×n identity with row i multiplied by scalar p (1-based index)",                                              3, 3),
+    CatalogEntry("elem_swap",        None,  "Swap elementary matrix — n×n identity with rows i and j exchanged (1-based indices)",                                                 3, 3),
+    CatalogEntry("elem_shear",       None,  "Shear elementary matrix — n×n identity with E[i,j] = p; left-multiplying adds p·row j to row i (1-based indices)",                  4, 4),
 ]
 
 CATALOG_MAP: dict[str, CatalogEntry] = {e.name: e for e in CATALOG}
@@ -531,6 +536,102 @@ def _op_is_similar(args):
         raise ValueError(f"Could not determine similarity: {e}") from e
 
 
+def _op_I(args):
+    """Return the n×n identity matrix."""
+    if not _is_scalar(args[0]):
+        raise ValueError("I: n must be a positive integer")
+    n = int(round(float(args[0])))
+    if n < 1:
+        raise ValueError("I: n must be at least 1")
+    return _matrix_result(np.eye(n))
+
+
+def _elem_n_and_row(args, fname):
+    """Parse and validate n and one or more 1-based row indices from args."""
+    if not _is_scalar(args[0]):
+        raise ValueError(f"{fname}: n must be a positive integer")
+    n = int(round(float(args[0])))
+    if n < 1:
+        raise ValueError(f"{fname}: n must be at least 1")
+
+    def _row(idx, name: str) -> int:
+        r = int(round(float(idx)))
+        if r < 1 or r > n:
+            raise ValueError(f"{fname}: row index {name}={r} out of range [1, {n}]")
+        return r - 1
+
+    return n, _row
+
+
+def _op_elem_scale(args):
+    """Scale elementary matrix: n×n identity with row i multiplied by p.
+
+    elem_scale(n, p, i) — E[i-1, i-1] = p; all other diagonal entries remain 1.
+    Row index i is 1-based.
+    """
+    n, _row = _elem_n_and_row(args, "elem_scale")
+    p = float(args[1])
+    i = _row(args[2], "i")
+    E = np.eye(n)
+    E[i, i] = p
+    return _matrix_result(E)
+
+
+def _op_elem_swap(args):
+    """Swap elementary matrix: n×n identity with rows i and j exchanged.
+
+    elem_swap(n, i, j) — left-multiplying A by E swaps rows i and j of A.
+    Row indices are 1-based; i and j must be different.
+    """
+    n, _row = _elem_n_and_row(args, "elem_swap")
+    i = _row(args[1], "i")
+    j = _row(args[2], "j")
+    if i == j:
+        raise ValueError("elem_swap: i and j must refer to different rows")
+    E = np.eye(n)
+    E[[i, j]] = E[[j, i]]
+    return _matrix_result(E)
+
+
+def _op_elem_shear(args):
+    """Shear elementary matrix: n×n identity with E[i-1, j-1] = p.
+
+    elem_shear(n, p, i, j) — left-multiplying A by E replaces row i of A
+    with row i + p·row j.  Row indices are 1-based; i and j must be different.
+    """
+    n, _row = _elem_n_and_row(args, "elem_shear")
+    p = float(args[1])
+    i = _row(args[2], "i")
+    j = _row(args[3], "j")
+    if i == j:
+        raise ValueError("elem_shear: i and j must refer to different rows")
+    E = np.eye(n)
+    E[i, j] = p
+    return _matrix_result(E)
+
+
+def _op_lu(args):
+    """LU decomposition with partial pivoting via SciPy.
+
+    Returns P, L, U such that A = P · L · U, where:
+      - P is a permutation matrix (m × m)
+      - L is unit lower-triangular (m × k, k = min(m, n))
+      - U is upper-triangular (k × n)
+
+    Works for any matrix shape (square or rectangular).
+    """
+    A = _to_matrix(args[0])
+    P, L, U = sp_linalg.lu(A)
+    return {
+        "type": "multi_output",
+        "outputs": {
+            "P": _matrix_result(P),
+            "L": _matrix_result(L),
+            "U": _matrix_result(U),
+        },
+    }
+
+
 def _op_neg(args):
     arg = args[0]
     if _is_scalar(arg):
@@ -575,6 +676,11 @@ _OPERATION_FNS: dict = {
     "svd":               _op_svd,
     "gs":                _op_gs,
     "isSimilar":         _op_is_similar,
+    "lu":                _op_lu,
+    "I":                 _op_I,
+    "elem_scale":        _op_elem_scale,
+    "elem_swap":         _op_elem_swap,
+    "elem_shear":        _op_elem_shear,
     # internal
     "neg":               _op_neg,
 }
